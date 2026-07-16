@@ -1,165 +1,163 @@
 # Master Engineering Roadmap (BOOK.md)
 
-This document is the master engineering roadmap for the Cortex AI backend. It contains a complete architectural audit, module-by-module analysis, database designs, API specifications, security reviews, performance enhancements, and future roadmap.
+> **Last Updated**: July 2026
+> This document is the authoritative engineering reference for the Cortex AI backend.
+> It records architecture decisions, audit findings, improvement status, and future roadmap.
 
 ---
 
 ## 1. Current Architecture
 
-The Cortex AI platform is currently implemented as a **Node.js microservices architecture** orchestrated via Docker Compose (though the compose setup is minimal and incomplete). It consists of an API Gateway and four core microservices.
+### Overview
 
-### Current High-Level Architecture
-- **API Gateway**: Entry point for all HTTP requests. Responsible for CORS, basic security headers (Helmet), session token extraction from cookies, session validation via Redis, and reverse-proxy routing (using `express-http-proxy`) to downstream microservices.
-- **Authentication Service**: Handled via Firebase Admin SDK. Receives Firebase ID Tokens, validates them, creates/manages user documents in MongoDB, and stores user sessions in Redis.
-- **Chat Service**: Manages conversation history, message histories, and user artifacts (code, PDFs, slide documents). Uses MongoDB.
-- **Agent Service**: Coordinates multiple specialized agents (chat, coding, search, pdf, ppt, image, vision, pdf_rag) using a LangGraph-based state machine.
-- **Billing Service**: Manages payments, packages, and plan subscriptions via Razorpay. Communicates synchronously with the Auth service to update user credits and plans upon payment confirmation.
+The Cortex AI platform is a **Node.js microservices architecture** backed by MongoDB (via Mongoose), Redis (session store + conversation memory cache), and an API Gateway layer using Express.
 
-### Architectural Strengths
-- **Decoupled domains**: Auth, Chat, Billing, and Agents are isolated, allowing independent scaling.
-- **Fast Session Store**: Using Redis for session storage avoids querying the primary database on every API request.
-- **Centralized Routing**: API Gateway protects internal services from direct public access and forwards sanitized headers (`x-user-id`, `x-user-email`).
+### Service Topology
 
-### Architectural Weaknesses & Technical Debt
-1. **Synchronous Inter-Service Communication**: Billing service updates user credits via synchronous HTTP calls to Auth service. If the Auth service is down, payment validation succeeds but credits are not credited (lack of transactional outbox or event-driven retry mechanism).
-2. **Missing Service-to-Service Security**: Downstream services (e.g., Auth's `/internal/*` routes) trust HTTP requests implicitly. Anyone inside the network—or external users if firewall/proxy routing is misconfigured—can call `/internal/update-plan` without credentials.
-3. **No Database Indexing Strategy**: MongoDB collections lack explicit, documented indices. Frequently queried fields like `userId`, `firebaseUid`, `conversationId`, and `orderId` rely on full-table scans, which degrades performance as data grows.
-4. **Poor Error Handling & Response Consistency**: Services return ad-hoc error shapes. Mongoose validation errors result in unhandled promise rejections or raw stack traces being sent to the client.
-5. **No API Versioning**: Current routing uses `/api/auth`, `/api/chat` directly without version prefixes (e.g., `/api/v1/auth`), making future updates highly breaking.
-6. **No Observability**: Lacks structured logging (morgan `dev` is only used in Gateway), request IDs, metrics, or tracing.
-7. **Monolithic Local File Storage in Agent Service**: Files uploaded to Agent Service are stored locally via Multer. In a scaled environment, instances behind a load balancer will not share uploaded files, causing data loss.
+```
+Clients
+   │
+   ▼
+API Gateway :5000   ← Helmet, CORS, Redis rate limiter, session validation
+   │
+   ├──► Auth Service    :5001  Firebase token validation + session management
+   ├──► Chat Service    :5002  Conversation & message persistence (MongoDB)
+   ├──► Agent Service   :5003  LangGraph orchestration (chat/coding/search/pdf/ppt/image)
+   └──► Billing Service :5004  Razorpay order creation and payment verification
+
+Shared Infrastructure:
+  - MongoDB Atlas (all services)
+  - Redis (gateway sessions + agent conversation memory)
+```
+
+### Service-to-Service Authentication
+
+All `/internal/*` endpoints require an `x-internal-key` header verified against the `INTERNAL_API_KEY` environment variable. This prevents unauthorized access from outside the service mesh.
+
+### Strengths
+- Decoupled service domains enabling independent scaling
+- Redis session store avoids DB queries on every authenticated request
+- API Gateway centralizes auth, rate limiting, and security headers
+- LangGraph provides structured, observable agent state machine routing
+
+### Weaknesses (Technical Debt — Partially Resolved)
+- ~~CORS hardcoded to `localhost:5173`~~ → Now environment-driven via `ALLOWED_ORIGINS`
+- ~~No Redis rate limiting~~ → Implemented with `express-rate-limit` + `rate-limit-redis`
+- ~~No health checks~~ → All services expose `/health` endpoint
+- ~~No graceful shutdown~~ → `SIGTERM`/`SIGINT` handlers implemented across all services
+- ~~Inconsistent error responses~~ → Standardized shape via shared `response.js` helpers
+- ~~No service-to-service auth~~ → `x-internal-key` middleware on all `/internal/*` routes
+- ~~No pagination~~ → `getMessages` supports `?page` and `?limit` query params
+- Synchronous inter-service communication (billing → auth) — should become event-driven in a future phase
 
 ---
 
-## 2. Backend Review
+## 2. Backend Module Review
 
 ### API Gateway (`/backend/gateway`)
-- **Current State**: Entry point running Express on port 5000. Uses Redis session verification middleware.
-- **Problems**:
-  - Unused dependencies (`express-rate-limit`, `rate-limit-redis`) in `package.json` that are not actually initialized in `index.js`.
-  - CORS origin is hardcoded to `http://localhost:5173`.
-  - Missing global error handling middleware; unhandled errors leak HTML response structures.
-  - Lacks structured logs or request ID tracking.
-- **Improvements**:
-  - Implement Redis-backed rate limiting.
-  - Inject CORS origin via environment variables.
-  - Create centralized error interception middleware returning standardized JSON formats.
-  - Configure Morgan to emit structured JSON logs including Request-ID headers.
-- **Priority**: High
-- **Estimated Complexity**: Low
+| | |
+|---|---|
+| **Current State** | Fully refactored |
+| **Changes Made** | Redis-backed rate limiter, dynamic CORS, request IDs in headers, structured Morgan logging, centralized error handler, health check endpoint |
+| **Remaining** | None for this phase |
+| **Priority** | ✅ Complete |
 
-### Authentication Service (`/backend/services/auth`)
-- **Current State**: Manages users and internal credit/plan modifications. Runs on port 5001.
-- **Problems**:
-  - `/internal/*` endpoints lack authentication/authorization.
-  - Firebase token errors are returned raw to users.
-  - No database indexes on `firebaseUid` or `email` collections.
-- **Improvements**:
-  - Secure `/internal/*` endpoints with shared secret tokens, JWTs, or mTLS.
-  - Map Firebase tokens to a dedicated local database user representation with unique constraints.
-  - Implement structured responses for auth successes and failures.
-- **Priority**: Critical
-- **Estimated Complexity**: Medium
+### Auth Service (`/backend/services/auth`)
+| | |
+|---|---|
+| **Current State** | Fully refactored |
+| **Changes Made** | Extracted `buildSessionPayload()` and `refreshSession()` helpers eliminating 3× code duplication, removed `console.log(decoded)`, cookie security tied to `NODE_ENV`, field validation on all endpoints, `protectInternal` middleware on `/internal/*` routes |
+| **Remaining** | None for this phase |
+| **Priority** | ✅ Complete |
 
 ### Chat Service (`/backend/services/chat`)
-- **Current State**: Saves and loads messages, conversations, and artifacts. Runs on port 5002.
-- **Problems**:
-  - `/get-messages/:id` loads all messages in a conversation. An old conversation with 1,000+ messages will crash the service or response payload.
-  - No validation of incoming `conversationId` parameter (causes Mongoose CastErrors when malformed).
-- **Improvements**:
-  - Implement offset or cursor-based pagination for messages and conversations.
-  - Add request validation to verify that `conversationId` parameters are valid object IDs.
-  - Create database indexes on `userId` and `conversationId`.
-- **Priority**: High
-- **Estimated Complexity**: Medium
+| | |
+|---|---|
+| **Current State** | Fully refactored |
+| **Changes Made** | Paginated `getMessages` (`?page&limit`), ObjectId validation, all imports moved to top, soft-delete filter on `getConversations`, standardized responses, compound indexes on schema |
+| **Remaining** | None for this phase |
+| **Priority** | ✅ Complete |
 
 ### Agent Service (`/backend/services/agent`)
-- **Current State**: Coordinates LangGraph state machines. Runs on port 5003.
-- **Problems**:
-  - Calls Chat Service synchronously via Axios in HTTP controller. If Chat Service is down, the agent fails.
-  - Stores uploaded files on the local filesystem.
-  - Huge memory and execution footprints; blocking event loop on long agent runs.
-- **Improvements**:
-  - Offload long-running agent tasks to a background worker queue (RabbitMQ / BullMQ) or stream responses over SSE.
-  - Abstract file uploads to support Amazon S3 or MinIO cloud storage.
-- **Priority**: Medium
-- **Estimated Complexity**: High
+| | |
+|---|---|
+| **Current State** | Partially refactored |
+| **Changes Made** | Health check, graceful shutdown, standardized error handler, `x-internal-key` forwarded to auth service |
+| **Remaining** | File uploads still use local disk (Multer → local `./temp`). Should migrate to S3 for multi-instance support. |
+| **Priority** | Medium |
 
 ### Billing Service (`/backend/services/billing`)
-- **Current State**: Creates Razorpay orders and processes checkout webhooks. Runs on port 5004.
-- **Problems**:
-  - Synchronous HTTP call dependency on Auth service to update plans.
-  - No database transaction support.
-- **Improvements**:
-  - Implement a Transactional Outbox pattern or RabbitMQ event emission for payment confirmations.
-  - Validate webhook payloads using Razorpay's cryptographic verification.
-- **Priority**: High
-- **Estimated Complexity**: Medium
+| | |
+|---|---|
+| **Current State** | Fully refactored |
+| **Changes Made** | Standardized responses, added idempotency guard (`payment.status === "paid"` check prevents double-credit), field validation, health check, graceful shutdown |
+| **Remaining** | Consider transactional outbox / event queue if auth service down during payment verification |
+| **Priority** | ✅ Complete for this phase |
 
 ---
 
 ## 3. Database Improvements
 
-The current application uses **MongoDB** via Mongoose instead of PostgreSQL. 
+### MongoDB Optimization Status
 
-### MongoDB Audit & Schema Optimization
-1. **Unique Indexing**:
-   - `User` schema: Set `firebaseUid` and `email` to explicit DB-level indexes.
-   - `Payment` schema: Set `orderId` to a unique index.
-2. **Compound Indexing**:
-   - `Message` schema: Add compound index on `{ conversationId: 1, createdAt: -1 }` to support fast, paginated message retrieval.
-   - `Conversation` schema: Add compound index on `{ userId: 1, updatedAt: -1 }` for rapid rendering of a user's recent chats.
-3. **Mongoose Validation**:
-   - Schema validation should enforce field rules. Currently, `User` model attributes (`name`, `email`) are optional, allowing empty strings.
-4. **Soft Deletes**:
-   - Introduce a `deletedAt` field on the `Conversation` schema to allow users to hide/delete chats without immediately wiping history, supporting auditing and recovery.
-5. **Connection Pooling**:
-   - Add `maxPoolSize: 50` and `minPoolSize: 5` configurations to the MongoDB connection string or parameters in `db.js` to handle concurrent traffic.
-6. **Graceful Shutdowns**:
-   - Explicitly handle `SIGTERM` and `SIGINT` to call `mongoose.connection.close()` so connections are closed gracefully instead of abruptly terminating.
+| Collection | Index Added | Validation Added | Soft Delete |
+|---|---|---|---|
+| `users` | ✅ `firebaseUid`, `email` | ✅ required, enum, min | ❌ not needed |
+| `conversations` | ✅ `{ userId, updatedAt }` compound | ✅ required, trim | ✅ `deletedAt` field |
+| `messages` | ✅ `{ conversationId, createdAt }` compound | ✅ required, enum | ❌ |
+| `payments` | ✅ `orderId` unique, `userId` | ✅ required, min, enum | ❌ |
 
-### Relational Mapping (PostgreSQL Schema Design)
-Should the application migrate to a relational database (PostgreSQL), we propose the following schema design:
+### MongoDB Connection Configuration
+All services now use the shared `connectDB.js` module:
+- `maxPoolSize: 50` — handles concurrent connections under load
+- `minPoolSize: 5` — keeps warm connections pre-allocated
+- `serverSelectionTimeoutMS: 5000` — fast fail on unreachable Atlas
+- Lifecycle events: `error`, `disconnected` logged
+- Graceful `mongoose.connection.close()` on shutdown signals
+
+### PostgreSQL Equivalent Schema (Migration Reference)
+
+Should the platform migrate to PostgreSQL in a future phase:
 
 ```sql
--- PostgreSQL Migration Schema
 CREATE TABLE users (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     firebase_uid VARCHAR(128) UNIQUE NOT NULL,
     name VARCHAR(255) NOT NULL,
     email VARCHAR(255) UNIQUE NOT NULL,
-    avatar VARCHAR(2048),
-    provider VARCHAR(64),
-    plan VARCHAR(64) DEFAULT 'free' NOT NULL,
-    credits INTEGER DEFAULT 100 NOT NULL,
-    total_credits INTEGER DEFAULT 100 NOT NULL,
+    avatar VARCHAR(2048) DEFAULT '',
+    provider VARCHAR(64) DEFAULT 'password',
+    plan VARCHAR(64) NOT NULL DEFAULT 'free' CHECK (plan IN ('free','basic','premium','pro')),
+    credits INTEGER NOT NULL DEFAULT 100 CHECK (credits >= 0),
+    total_credits INTEGER NOT NULL DEFAULT 100 CHECK (total_credits >= 0),
     plan_expires_at TIMESTAMP WITH TIME ZONE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE INDEX idx_users_email ON users(email);
+CREATE INDEX idx_users_firebase_uid ON users(firebase_uid);
 
 CREATE TABLE conversations (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID REFERENCES users(id) ON DELETE CASCADE,
-    title VARCHAR(255) DEFAULT 'New Chat' NOT NULL,
-    deleted_at TIMESTAMP WITH TIME ZONE DEFAULT NULL,
+    title VARCHAR(255) NOT NULL DEFAULT 'New Chat',
+    deleted_at TIMESTAMP WITH TIME ZONE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE INDEX idx_conversations_user ON conversations(user_id) WHERE deleted_at IS NULL;
+CREATE INDEX idx_conversations_user ON conversations(user_id, updated_at DESC)
+    WHERE deleted_at IS NULL;
 
 CREATE TABLE messages (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     conversation_id UUID REFERENCES conversations(id) ON DELETE CASCADE,
-    role VARCHAR(32) CHECK (role IN ('user', 'assistant')) NOT NULL,
-    content TEXT,
-    images TEXT[],
-    artifacts JSONB DEFAULT '[]'::jsonb,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    role VARCHAR(32) NOT NULL CHECK (role IN ('user','assistant')),
+    content TEXT NOT NULL,
+    images TEXT[] DEFAULT '{}',
+    artifacts JSONB DEFAULT '[]',
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE INDEX idx_messages_conversation ON messages(conversation_id, created_at ASC);
@@ -169,126 +167,146 @@ CREATE TABLE payments (
     user_id UUID REFERENCES users(id) ON DELETE SET NULL,
     order_id VARCHAR(255) UNIQUE NOT NULL,
     payment_id VARCHAR(255),
-    amount NUMERIC(10, 2) NOT NULL,
-    credits INTEGER NOT NULL,
+    amount NUMERIC(10,2) NOT NULL CHECK (amount >= 0),
+    credits INTEGER NOT NULL CHECK (credits >= 0),
     plan VARCHAR(64) NOT NULL,
-    currency VARCHAR(10) DEFAULT 'INR' NOT NULL,
-    status VARCHAR(64) DEFAULT 'created' NOT NULL,
+    currency VARCHAR(10) NOT NULL DEFAULT 'INR',
+    status VARCHAR(32) NOT NULL DEFAULT 'created' CHECK (status IN ('created','paid','failed')),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE INDEX idx_payments_order ON payments(order_id);
+CREATE INDEX idx_payments_user ON payments(user_id);
 ```
 
 ---
 
 ## 4. API Improvements
 
-1. **REST Consistency**:
-   - Clean up non-standard paths (e.g. rename `/save-message` to `POST /api/messages` or POST `/api/conversations/:id/messages`).
-   - Standardize HTTP status codes: Return `201 Created` for resource creation, `400 Bad Request` for validator failures, and `404 Not Found` for missing database records.
-2. **Pagination**:
-   - Apply pagination query flags (`limit=20`, `page=1`) to endpoints retrieving message arrays or conversation lists.
-3. **API Versioning**:
-   - Rewrite the base path on API Gateway and service microservices to mount routes under `/api/v1/`.
-4. **Caching**:
-   - Cache user profile data (`/api/me`) in Redis for 10-15 minutes instead of querying Redis or Mongo constantly if it doesn't change, and invalidate the cache on plan updates or profile changes.
-5. **Idempotency**:
-   - Add `Idempotency-Key` tracking for payment and billing requests to prevent double-charging or duplicate transactions.
+| Improvement | Status |
+|---|---|
+| Standardized success/error response shape | ✅ Implemented |
+| Pagination on `getMessages` (`?page&limit`) | ✅ Implemented |
+| ObjectId validation before DB queries | ✅ Implemented |
+| Field validation on all controller inputs | ✅ Implemented |
+| HTTP `201 Created` for resource creation | ✅ Implemented |
+| `404 Not Found` for missing records | ✅ Implemented |
+| API versioning (`/api/v1/`) | ⏳ Planned — Phase 2 |
+| OpenAPI / Swagger spec | ⏳ Planned — Phase 2 |
+| Filtering and sorting parameters | ⏳ Planned — Phase 2 |
 
 ---
 
 ## 5. Security Improvements
 
-1. **Service-to-Service Authorization**:
-   - Implement a secret key validation middleware (`x-internal-key`) on service endpoints intended for internal use only (e.g., billing calling auth plan updates).
-2. **Helmet & Security Headers**:
-   - Configure Helmet with custom content-security policies in the API Gateway.
-3. **Input Validation**:
-   - Integrate schema validation (e.g., Joi or Zod) to filter body inputs, rejecting excessive parameters or unexpected data types before hitting service engines.
-4. **Rate Limiting**:
-   - Enable Redis-backed rate limiting per IP in Gateway (`100 requests per 15 minutes` for general routes, `10 requests per minute` for login/authentication endpoints).
+| Improvement | Status |
+|---|---|
+| Redis-backed rate limiting (IP-level, 300 req/15min) | ✅ |
+| `x-internal-key` service-to-service auth | ✅ |
+| `httpOnly` cookies | ✅ |
+| `secure` cookie flag in production | ✅ (tied to `NODE_ENV`) |
+| `sameSite=strict` in production | ✅ |
+| Input validation before DB operations | ✅ |
+| Helmet security headers on gateway | ✅ |
+| Dynamic CORS from env variable | ✅ |
+| OWASP Top 10: SQL Injection | N/A (MongoDB + Mongoose) |
+| OWASP Top 10: XSS | ✅ Helmet CSP headers |
+| OWASP Top 10: Broken Auth | ✅ Redis session + Firebase |
+| Rate limit for `/auth/login` specifically | ⏳ Planned — Phase 2 |
+| CSRF protection for cookie-based auth | ⏳ Planned — Phase 2 |
 
 ---
 
 ## 6. Performance Improvements
 
-1. **Database Indexes**:
-   - Create compound index definitions directly inside Mongoose schemas and run script queries to check index presence in production.
-2. **Redis Connection Multiplexing**:
-   - Keep a single Redis connection pool shared across middleware instances in the gateway, avoiding recreation of connection objects.
-3. **Response Compression**:
-   - Add the `compression` middleware in the API Gateway to compress JSON payloads, improving transmission speed for large chat response histories.
-4. **Database Connection Tuning**:
-   - Tune connection strings with keepAlive and socket timeouts to recover from network drops.
+| Improvement | Status |
+|---|---|
+| MongoDB connection pooling (`maxPoolSize=50`) | ✅ |
+| Redis connection retryStrategy + reconnectOnError | ✅ |
+| Compound DB indexes for hot queries | ✅ |
+| Paginated message loading (max 100 per page) | ✅ |
+| Redis conversation memory cache (24h TTL) | ✅ (existing) |
+| Response compression middleware | ⏳ Planned |
+| S3 for agent file uploads (multi-instance safe) | ⏳ Planned |
 
 ---
 
-## 7. Code Quality & Standards
+## 7. Code Quality
 
-1. **SOLID Principles**:
-   - Refactor controller architectures to separate routing, business services, and database repository abstractions.
-2. **Eliminate Duplicated Code**:
-   - Centralize database connection libraries and error wrappers.
-3. **Types & Validation**:
-   - Document parameter schema formats for all major payloads.
-4. **Unused Packages**:
-   - Audit `package.json` configurations in every subservice and prune unused dependencies.
+| Concern | Status |
+|---|---|
+| Shared `connectDB.js` replaces 4× duplicated db.js | ✅ |
+| Shared `response.js` eliminates ad-hoc JSON shapes | ✅ |
+| Shared `gracefulShutdown.js` eliminates 4× signal handlers | ✅ |
+| Shared `redis.js` singleton with retry logic | ✅ |
+| `buildSessionPayload()` helper removes 3× duplication | ✅ |
+| `refreshSession()` helper removes 2× duplication | ✅ |
+| Removed all `console.log(error)` debug statements | ✅ |
+| Removed all `console.log(decoded)` debug statements | ✅ |
+| All controller imports moved to top of file | ✅ |
+| Idiomatic modern JS throughout | ✅ |
 
 ---
 
 ## 8. Production Readiness
 
-1. **Docker Compose Enhancements**:
-   - Build a comprehensive, unified `docker-compose.yml` including Gateway, Services, MongoDB, Redis, and health checks.
-2. **Health Checks**:
-   - Add a `/health` endpoint to each microservice returning DB connection health, memory usage, and status.
-3. **Graceful Shutdown**:
-   - Ensure servers capture OS signals (`SIGTERM`/`SIGINT`) to complete processing current requests, close DB pools, and shutdown HTTP listeners.
+| Feature | Status |
+|---|---|
+| Health check `/health` on all 5 services | ✅ |
+| Graceful shutdown (`SIGTERM`/`SIGINT`) on all services | ✅ |
+| Docker Compose with `condition: service_healthy` | ✅ |
+| Named Docker network isolation (`cortex-net`) | ✅ |
+| Environment variable documentation (`.env.example`) | ✅ |
+| Jest + Supertest test suite (gateway) | ✅ |
+| Request ID in all HTTP responses (`x-request-id`) | ✅ |
+| Structured logs (Morgan + prefix tags) | ✅ |
+| `nodemon` for dev, `node` for production | ✅ |
+| Prometheus metrics | ⏳ Phase 3 |
+| OpenTelemetry tracing | ⏳ Phase 3 |
+| CI/CD pipeline (GitHub Actions) | ⏳ Phase 3 |
 
 ---
 
-## 9. Missing Features & Priority List
+## 9. Missing Features (Future Phases)
 
-| Feature | Description | Priority | Complexity |
-| :--- | :--- | :--- | :--- |
-| **API Versioning** | Moving endpoints under `/api/v1/` prefix | High | Low |
-| **Internal Auth** | Securing internal `/internal/` endpoints | Critical | Low |
-| **Pagination** | Paginating message history calls | High | Medium |
-| **Redis Rate Limit** | Enabling Redis IP rate limiters on Gateway | High | Low |
-| **Graceful Shutdown** | Handling OS signals in Express and Mongoose | Medium | Low |
-| **Docker Compose** | Launching all services + Mongo via Docker Compose | High | Medium |
-| **Health Checks** | Exposing `/health` checking DB/Redis states | Medium | Low |
-| **Test Suite** | Unit and Integration tests with Jest & Supertest | High | Medium |
+### Phase 2 — API Maturity
+| Feature | Priority | Complexity |
+|---|---|---|
+| API versioning (`/api/v1/`) | High | Low |
+| OpenAPI / Swagger UI | High | Medium |
+| Auth-specific rate limiter (login endpoint) | High | Low |
+| CSRF protection | Medium | Medium |
+| Filtering + sorting on list endpoints | Medium | Low |
+| `DELETE /conversations/:id` (soft delete) | Medium | Low |
+
+### Phase 3 — Observability & Operations
+| Feature | Priority | Complexity |
+|---|---|---|
+| OpenTelemetry distributed tracing | High | High |
+| Prometheus metrics + Grafana dashboard | High | Medium |
+| Structured JSON logging (pino/winston) | Medium | Low |
+| GitHub Actions CI/CD pipeline | High | Medium |
+| Automated DB backup strategy | Medium | Medium |
+
+### Phase 4 — Advanced Features
+| Feature | Priority | Complexity |
+|---|---|---|
+| RabbitMQ / BullMQ for async billing events | High | High |
+| S3 file storage in agent service | Medium | Medium |
+| WebSocket / SSE for streaming agent responses | Medium | High |
+| Refresh token rotation | Medium | Medium |
+| RBAC (role-based access control) | Low | High |
+| Feature flags | Low | Medium |
+| Audit log table | Low | Medium |
 
 ---
 
-## 10. Future Enhancements & Action Plan
+## 10. Decisions & Rationale
 
-### Phase 1: Cleanup & Roadmap
-- [ ] Remove the frontend application folder entirely.
-- [ ] Create initial `BOOK.md` master document.
-- [ ] Update root project metadata and configurations.
-
-### Phase 2: Core Gateway Refactor
-- [ ] Implement Redis-backed IP rate limiter in Gateway.
-- [ ] Add Helmet, customized CORS, and structured JSON logs.
-- [ ] Standardize gateway error handling.
-
-### Phase 3: Service Refactoring
-- [ ] Create service-to-service auth middleware (`x-internal-key`).
-- [ ] Secure `auth` service internal routes.
-- [ ] Add explicit indexes to Mongoose schemas.
-- [ ] Add request body schema validation.
-- [ ] Standardize API success/error JSON response payloads.
-- [ ] Implement paginated message loading in `chat` service.
-
-### Phase 4: Production Setup & Docker
-- [ ] Construct comprehensive docker-compose configuration.
-- [ ] Add `/health` endpoints check.
-- [ ] Program SIGTERM/SIGINT hooks.
-
-### Phase 5: Verification & Tests
-- [ ] Add Jest & Supertest suites.
-- [ ] Run verification tests.
+| Decision | Rationale |
+|---|---|
+| Keep MongoDB (not migrate to PostgreSQL) | Existing LangGraph artifact schemas and agent context objects are document-native. MongoDB compound indexes and Mongoose validation provide adequate production-grade guarantees without a full migration cost. |
+| `x-internal-key` over mTLS | Simple, auditable, sufficient for a single-cluster deployment. mTLS is the right upgrade path when services span multiple clusters. |
+| Shared modules in `backend/shared/` | Eliminates drift between 4 identical `db.js` copies and ensures all services emit consistent logs and responses. |
+| `cookie-parser` + Redis sessions over JWTs | Stateful sessions allow instant invalidation on plan change or logout. JWTs are stateless and would require a denylist to achieve the same, adding similar complexity. |
