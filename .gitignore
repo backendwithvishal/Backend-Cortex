@@ -1,6 +1,15 @@
 # Created by https://www.toptal.com/developers/gitignore/api/node
 # Edit at https://www.toptal.com/developers/gitignore?templates=node
 
+### Project-specific secrets ###
+.env
+.env.*
+!.env.example
+serviceAccount.json
+temp/
+uploads/
+
+
 ### Node ###
 # Logs
 logs
