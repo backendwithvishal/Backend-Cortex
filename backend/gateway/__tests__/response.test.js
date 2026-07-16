@@ -1,3 +1,4 @@
+import { jest } from "@jest/globals";
 import { sendSuccess, sendError, sendPaginated } from "../../shared/response/response.js";
 
 const mockRes = () => {
