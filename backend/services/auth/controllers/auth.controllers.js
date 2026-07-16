@@ -1,418 +1,189 @@
 import crypto from "crypto";
-
-import { getAuth }
-  from "firebase-admin/auth";
+import { getAuth } from "firebase-admin/auth";
 import User from "../models/user.model.js";
 import redis from "../../../shared/redis/redis.js";
-import { app } from "../config/firebase.js";
+import { app as firebaseApp } from "../config/firebase.js";
+import { sendSuccess, sendError } from "../../../shared/response/response.js";
 
+const SESSION_TTL_SECONDS = 60 * 60 * 24 * 7; // 7 days
 
-export const login = async (
-  req,
-  res
-) => {
+/**
+ * Builds the session payload stored in Redis.
+ * Keeping this as a dedicated function ensures all session writers produce
+ * identical shapes and prevents drift between login / updatePlan / deductCredits.
+ */
+const buildSessionPayload = (user) => ({
+  userId: user._id,
+  email: user.email,
+  avatar: user.avatar,
+  name: user.name,
+  plan: user.plan,
+  credits: user.credits,
+  totalCredits: user.totalCredits,
+});
 
+/**
+ * Refreshes the Redis session for a user if an active session exists.
+ * Used after any operation that mutates credits or plan.
+ */
+const refreshSession = async (user) => {
+  const sessionId = await redis.get(`user-session:${user._id}`);
+  if (!sessionId) return;
+
+  await redis.set(
+    `session:${sessionId}`,
+    JSON.stringify(buildSessionPayload(user)),
+    "EX",
+    SESSION_TTL_SECONDS
+  );
+};
+
+// POST /login
+export const login = async (req, res) => {
   try {
-
-
     const { token } = req.body;
 
-    const decoded =
-      await getAuth(app)
-        .verifyIdToken(token);
-
-    console.log(decoded);
-
-
-    let user =
-      await User.findOne({
-        firebaseUid:
-          decoded.uid,
-      });
-
-    if (!user) {
-
-      user =
-        await User.create({
-
-          firebaseUid:
-            decoded.uid,
-
-          email:
-            decoded.email,
-
-          name:
-            decoded.name,
-
-          avatar:
-            decoded.picture,
-
-          provider:
-            decoded.firebase
-              ?.sign_in_provider,
-        });
+    if (!token) {
+      return sendError(res, "Firebase ID token is required.", 400, "MISSING_TOKEN");
     }
 
-    const sessionId =
-      crypto.randomUUID();
+    const decoded = await getAuth(firebaseApp).verifyIdToken(token);
 
+    let user = await User.findOne({ firebaseUid: decoded.uid });
+
+    if (!user) {
+      user = await User.create({
+        firebaseUid: decoded.uid,
+        email: decoded.email,
+        name: decoded.name || decoded.email.split("@")[0],
+        avatar: decoded.picture || "",
+        provider: decoded.firebase?.sign_in_provider || "password",
+      });
+    }
+
+    const sessionId = crypto.randomUUID();
+
+    // Store reverse lookup: userId → sessionId (allows session invalidation on plan change)
     await redis.set(
       `user-session:${user._id}`,
       sessionId,
       "EX",
-      60 * 60 * 24 * 7
+      SESSION_TTL_SECONDS
     );
 
+    // Store session data: sessionId → user payload
     await redis.set(
-
       `session:${sessionId}`,
-
-      JSON.stringify({
-
-        userId:
-          user._id,
-
-        email:
-          user.email,
-        avatar:
-          user.avatar,
-        name: user.name,
-        plan: user.plan,
-        credits: user.credits,
-        totalCredits: user.totalCredits
-
-
-      }),
-
+      JSON.stringify(buildSessionPayload(user)),
       "EX",
-
-      60 * 60 * 24 * 7
+      SESSION_TTL_SECONDS
     );
 
-    res.cookie(
-
-      "session",
-
-      sessionId,
-
-      {
-        httpOnly: true,
-
-        secure: false,
-
-        sameSite: "lax",
-
-        maxAge:
-          1000 *
-          60 *
-          60 *
-          24 *
-          7,
-      }
-    );
-
-    return res.json({
-
-      success: true,
-
-      user,
+    res.cookie("session", sessionId, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: process.env.NODE_ENV === "production" ? "strict" : "lax",
+      maxAge: SESSION_TTL_SECONDS * 1000,
     });
 
+    return sendSuccess(res, { user }, "Logged in successfully.", 200);
   } catch (error) {
-
-    return res
-      .status(401)
-      .json({
-        message:
-          error.message,
-      });
-
+    if (error.code === "auth/argument-error" || error.code === "auth/id-token-expired") {
+      return sendError(res, "Invalid or expired Firebase token.", 401, "INVALID_TOKEN");
+    }
+    return sendError(res, error.message, 500);
   }
-
 };
 
-
-
-export const logout =
-  async (req, res) => {
-
-    try {
-
-      const sessionId =
-        req.cookies?.session;
-
-      if (sessionId) {
-
-        await redis.del(
-          `session:${sessionId}`
-        );
-
-      }
-
-      res.clearCookie(
-        "session",
-        {
-          httpOnly: true,
-          secure: false,
-          sameSite: "lax"
-        }
-      );
-
-      return res.status(200).json({
-
-        success: true,
-
-        message: "Logged out successfully"
-
-      });
-
-    } catch (error) {
-
-      return res.status(500).json({
-
-        success: false,
-
-        message: error.message
-
-      });
-
-    }
-
-  };
-
-
-
-export const updatePlan = async (req, res) => {
-
+// GET /logout
+export const logout = async (req, res) => {
   try {
-
-    const {
-
-      userId,
-
-      plan,
-
-      credits
-
-    } = req.body;
-
-    const user = await User.findById(userId);
-
-    if (!user) {
-
-      return res.status(404).json({
-
-        success: false,
-
-        message: "User not found"
-
-      });
-
-    }
-
-
-
-    user.plan = plan;
-
-    user.credits += credits;
-
-    user.totalCredits += credits;
-
-    user.planExpiresAt = new Date(
-
-      Date.now() +
-
-      30 * 24 * 60 * 60 * 1000
-
-    );
-
-    await user.save();
-
-
-    const sessionId = await redis.get(
-      `user-session:${user._id}`
-    );
+    const sessionId = req.cookies?.session;
 
     if (sessionId) {
-
-      await redis.set(
-
-        `session:${sessionId}`,
-
-        JSON.stringify({
-
-          userId: user._id,
-
-          email: user.email,
-
-          avatar: user.avatar,
-
-          name: user.name,
-
-          plan: user.plan,
-
-          credits: user.credits,
-
-          totalCredits: user.totalCredits
-
-        }),
-
-        "EX",
-
-        60 * 60 * 24 * 7
-
-      );
-
+      await redis.del(`session:${sessionId}`);
     }
 
-    return res.json({
-
-      success: true
-
+    res.clearCookie("session", {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: process.env.NODE_ENV === "production" ? "strict" : "lax",
     });
 
+    return sendSuccess(res, null, "Logged out successfully.");
+  } catch (error) {
+    return sendError(res, error.message);
   }
-
-  catch (error) {
-
-    console.log(error);
-
-    return res.status(500).json({
-
-      success: false,
-
-      message: error.message
-
-    });
-
-  }
-
 };
 
+// PATCH /internal/update-plan  (called by billing service after successful payment)
+export const updatePlan = async (req, res) => {
+  try {
+    const { userId, plan, credits } = req.body;
 
+    if (!userId || !plan || credits === undefined) {
+      return sendError(res, "userId, plan, and credits are required.", 400, "MISSING_FIELDS");
+    }
 
+    const user = await User.findById(userId);
+    if (!user) {
+      return sendError(res, "User not found.", 404, "USER_NOT_FOUND");
+    }
 
+    user.plan = plan;
+    user.credits += credits;
+    user.totalCredits += credits;
+    user.planExpiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
 
+    await user.save();
+    await refreshSession(user);
+
+    return sendSuccess(res, null, "Plan updated successfully.");
+  } catch (error) {
+    return sendError(res, error.message);
+  }
+};
+
+// PATCH /internal/deduct-credits  (called by agent service before processing)
 export const deductCredits = async (req, res) => {
+  try {
+    const { userId, agent } = req.body;
 
-    try {
-
-        const {
-
-            userId,
-
-            agent
-
-        } = req.body;
-
-        const COST = {
-
-             chat:1,
-
-  search:5,
-
-  coding:10,
-
-  pdf:10,
-
-  ppt:10,
-
-  image:10
-
-        };
-
-        const user = await User.findById(userId);
-
-        if(!user){
-
-            return res.status(404).json({
-
-                success:false,
-
-                message:"User not found"
-
-            });
-
-        }
-
-        const requiredCredits =
-        COST[agent] || 1;
-
-        if(user.credits < requiredCredits){
-
-            return res.status(400).json({
-
-                success:false,
-
-                message:"Not enough credits."
-
-            });
-
-        }
-
-        user.credits -= requiredCredits;
-
-        await user.save();
-
-        const sessionId =
-        await redis.get(
-            `user-session:${user._id}`
-        );
-
-        if(sessionId){
-
-            await redis.set(
-
-                `session:${sessionId}`,
-
-                JSON.stringify({
-
-                    userId:user._id,
-
-                    email:user.email,
-
-                    avatar:user.avatar,
-
-                    name:user.name,
-
-                    plan:user.plan,
-
-                    credits:user.credits,
-
-                    totalCredits:user.totalCredits
-
-                }),
-
-                "EX",
-
-                60*60*24*7
-
-            );
-
-        }
-
-        return res.json({
-
-            success:true,
-
-            credits:user.credits
-
-        });
-
+    if (!userId || !agent) {
+      return sendError(res, "userId and agent are required.", 400, "MISSING_FIELDS");
     }
 
-    catch(error){
+    const CREDIT_COSTS = {
+      chat: 1,
+      search: 5,
+      coding: 10,
+      pdf: 10,
+      ppt: 10,
+      image: 10,
+    };
 
-        console.log(error);
-          console.log(error)
-        return res.status(500).json({
-
-            success:false,
-
-            message:error.message
-
-        });
-
+    const user = await User.findById(userId);
+    if (!user) {
+      return sendError(res, "User not found.", 404, "USER_NOT_FOUND");
     }
 
+    const requiredCredits = CREDIT_COSTS[agent] ?? 1;
+
+    if (user.credits < requiredCredits) {
+      return sendError(
+        res,
+        "Insufficient credits. Please upgrade your plan.",
+        400,
+        "INSUFFICIENT_CREDITS"
+      );
+    }
+
+    user.credits -= requiredCredits;
+    await user.save();
+    await refreshSession(user);
+
+    return sendSuccess(res, { credits: user.credits }, "Credits deducted successfully.");
+  } catch (error) {
+    return sendError(res, error.message);
+  }
 };

@@ -1,144 +1,126 @@
-import Conversation
-from "../models/conversation.model.js";
+import mongoose from "mongoose";
+import Conversation from "../models/conversation.model.js";
+import Message from "../models/message.model.js";
+import { sendSuccess, sendError, sendPaginated } from "../../../shared/response/response.js";
 
-export const createConversation =async(req,res)=>{
+const DEFAULT_PAGE_LIMIT = 30;
 
- try{
- const userId =req.headers["x-user-id"];
- console.log("userId",userId)
-  const conversation =await Conversation.create({
-   userId:userId
-  });
+const isValidObjectId = (id) => mongoose.Types.ObjectId.isValid(id);
 
-  res.json(
-   conversation
-  );
+// POST /create-conversation
+export const createConversation = async (req, res) => {
+  try {
+    const userId = req.headers["x-user-id"];
 
- }catch(error){
+    if (!userId) {
+      return sendError(res, "User ID header is missing.", 400, "MISSING_USER_ID");
+    }
 
-  res.status(500).json({
-   message:error.message
-  });
+    const conversation = await Conversation.create({ userId });
+    return sendSuccess(res, { conversation }, "Conversation created.", 201);
+  } catch (error) {
+    return sendError(res, error.message);
+  }
+};
 
- }
+// GET /get-conversations
+export const getConversations = async (req, res) => {
+  try {
+    const userId = req.headers["x-user-id"];
 
-}
+    if (!userId) {
+      return sendError(res, "User ID header is missing.", 400, "MISSING_USER_ID");
+    }
 
+    const conversations = await Conversation.find({
+      userId,
+      deletedAt: null,
+    }).sort({ updatedAt: -1 });
 
-export const getConversations =async(req,res)=>{
+    return sendSuccess(res, { conversations });
+  } catch (error) {
+    return sendError(res, error.message);
+  }
+};
 
- try{
- const userId =req.headers["x-user-id"];
-  const conversations =await Conversation.find({
+// POST /update-conversation
+export const updateConversation = async (req, res) => {
+  try {
+    const { conversationId, title } = req.body;
 
-   userId:userId
+    if (!conversationId || !title) {
+      return sendError(res, "conversationId and title are required.", 400, "MISSING_FIELDS");
+    }
 
-  })
-  .sort({
-   updatedAt:-1
-  });
+    if (!isValidObjectId(conversationId)) {
+      return sendError(res, "Invalid conversation ID.", 400, "INVALID_ID");
+    }
 
-  res.json(
-   conversations
-  );
+    const conversation = await Conversation.findByIdAndUpdate(
+      conversationId,
+      { title },
+      { new: true, runValidators: true }
+    );
 
- }catch(error){
+    if (!conversation) {
+      return sendError(res, "Conversation not found.", 404, "NOT_FOUND");
+    }
 
-  res.status(500).json({
-   message:error.message
-  });
+    return sendSuccess(res, { conversation }, "Conversation updated.");
+  } catch (error) {
+    return sendError(res, error.message);
+  }
+};
 
- }
+// POST /save-message
+export const saveMessage = async (req, res) => {
+  try {
+    const { conversationId, role, content, images, artifacts } = req.body;
 
-}
+    if (!conversationId || !role || !content) {
+      return sendError(res, "conversationId, role, and content are required.", 400, "MISSING_FIELDS");
+    }
 
-import Message
-from "../models/message.model.js";
+    if (!isValidObjectId(conversationId)) {
+      return sendError(res, "Invalid conversation ID.", 400, "INVALID_ID");
+    }
 
-export const saveMessage =async(req,res)=>{
+    const message = await Message.create({
+      conversationId,
+      role,
+      content,
+      images: images || [],
+      artifacts: artifacts || [],
+    });
 
- try{
+    return sendSuccess(res, { message }, "Message saved.", 201);
+  } catch (error) {
+    return sendError(res, error.message);
+  }
+};
 
-  const {
-   conversationId,
-   role,
-   content,
-   images,
-  artifacts
-  } = req.body;
+// GET /get-messages/:id?page=1&limit=30
+export const getMessages = async (req, res) => {
+  try {
+    const { id: conversationId } = req.params;
+    const page = Math.max(1, parseInt(req.query.page) || 1);
+    const limit = Math.min(100, parseInt(req.query.limit) || DEFAULT_PAGE_LIMIT);
+    const skip = (page - 1) * limit;
 
-  const message =await Message.create({
+    if (!isValidObjectId(conversationId)) {
+      return sendError(res, "Invalid conversation ID.", 400, "INVALID_ID");
+    }
 
-   conversationId,
+    const [messages, total] = await Promise.all([
+      Message.find({ conversationId })
+        .sort({ createdAt: 1 })
+        .skip(skip)
+        .limit(limit),
+      Message.countDocuments({ conversationId }),
+    ]);
 
-   role,
-  images,
-   content,
-   artifacts:
-  artifacts || []
-
-  });
-
-  res.json(
-   message
-  );
-
- }catch(error){
-
-  res.status(500).json({
-   message:error.message
-  });
-
- }
-
-}
-
-
-
-export const getMessages =async(req,res)=>{
-
- try{
-
-  const messages =await Message.find({
-
-   conversationId:
-   req.params.id
-
-  })
-  .sort({
-   createdAt:1
-  });
-
-  res.json(
-   messages
-  );
-
- }catch(error){
-
-  res.status(500).json({
-   message:error.message
-  });
-
- }
-
-}
-
-
-export const updateConversation=async (req,res)=>{
-try {
-    const {conversationId,title}=req.body
-    const conversation=await Conversation.findByIdAndUpdate( conversationId,{
-        title
-    })
-     res.json(
-   conversation
-  );
-
- }catch(error){
-
-  res.status(500).json({
-   message:error.message
-  });
-
-}
-}
+    return sendPaginated(res, messages, total, page, limit);
+  } catch (error) {
+    return sendError(res, error.message);
+  }
+};
