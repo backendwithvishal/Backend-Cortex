@@ -45,9 +45,20 @@ A production-grade, microservices-based backend for the Cortex AI platform. Buil
 ## Prerequisites
 
 - Node.js >= 18
-- MongoDB Atlas (or local MongoDB 6+)
+- MongoDB (local Docker Compose or Atlas instance)
 - Redis 7+
 - Docker & Docker Compose (for containerized setup)
+
+---
+
+## File Storage
+
+The project utilizes a cloud-independent, modular local storage adapter for saving generated and uploaded assets (PDFs, presentations, and images):
+- **Local Storage Path**: Configurable via `STORAGE_PATH` (defaults to `./storage/uploads`).
+- **Endpoint Protection**: Served via secure backend endpoint `/api/agent/files/:filename` proxied by the gateway (enforcing session cookie auth). Add `?download=true` query parameter to force download as an attachment.
+- **Validation**: Uploaded and generated files are checked for MIME type correctness and size limits (max 20MB).
+- **Path Traversal Protection**: Employs strict target directory verification to prevent path traversal vulnerability.
+- **Docker Persistence**: The `/storage/uploads` directory inside the agent container is bound to the `cortex-storage` Docker volume, ensuring files persist across container restarts.
 
 ---
 
@@ -131,6 +142,7 @@ All routes go through the gateway at `http://localhost:5000`.
 | Method | Endpoint | Auth | Body | Description |
 |--------|----------|------|------|-------------|
 | `POST` | `/api/agent/chat` | ✅ | `{ prompt, conversationId, agent }` + optional `file` | Run an agent |
+| `GET`  | `/api/agent/files/:filename` | ✅ | — | Securely fetch/download locally stored files (`?download=true` for attachment) |
 
 **Agent types**: `chat`, `coding`, `search`, `pdf`, `ppt`, `image`, `vision`, `pdf_rag`
 
