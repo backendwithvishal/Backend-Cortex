@@ -1,8 +1,7 @@
 import axios from "axios";
 import { getModel } from "../utils/model.js";
 
-import { uploadToS3 } from "../utils/uploadToS3.js";
-import { getDownloadUrl } from "../utils/getDownloadUrl.js";
+import { storage } from "../utils/storage.js";
 import { checkAgentLimit } from "../config/agentRateLimit.js";
 import { deductCredits } from "../utils/deductCredits.js";
 
@@ -80,16 +79,15 @@ ${state.prompt}
     const fileName =
       `image-${Date.now()}.png`;
 
-    await uploadToS3(
+    await storage.saveFile(
       imageBuffer,
       fileName,
       "image/png"
     );
 
     const downloadUrl =
-      await getDownloadUrl(
-        fileName,
-        24*60*60
+      await storage.getDownloadUrl(
+        fileName
       );
 
     return {

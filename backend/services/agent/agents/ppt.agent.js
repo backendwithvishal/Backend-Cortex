@@ -2,8 +2,7 @@ import pptxgen from "pptxgenjs";
 import fs from "fs";
 import path from "path";
 import { getModel } from "../utils/model.js";
-import { uploadToS3 } from "../utils/uploadToS3.js";
-import { getDownloadUrl } from "../utils/getDownloadUrl.js";
+import { storage } from "../utils/storage.js";
 import { deductCredits } from "../utils/deductCredits.js";
 import { checkAgentLimit } from "../config/agentRateLimit.js";
 
@@ -351,16 +350,15 @@ const buffer =
     outputType: "nodebuffer"
   });
 
-await uploadToS3(
+await storage.saveFile(
   buffer,
   fileName,
   "application/vnd.openxmlformats-officedocument.presentationml.presentation"
 );
 
 const downloadUrl =
-  await getDownloadUrl(
-    fileName,
-    24*60*60
+  await storage.getDownloadUrl(
+    fileName
   );
 
     return {

@@ -16,6 +16,22 @@ services:
     networks:
       - cortex-net
 
+  mongodb:
+    image: mongo:6.0
+    container_name: cortex-mongodb
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb-data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - cortex-net
+
   # ─── Gateway ───────────────────────────────────────────────────────────────
   gateway:
     build:
@@ -59,11 +75,13 @@ services:
     environment:
       - PORT=5001
       - NODE_ENV=${NODE_ENV:-production}
-      - MONGODB_URL=${MONGODB_URL}
+      - MONGODB_URL=${MONGODB_URL:-mongodb://mongodb:27017/cortex}
       - REDIS_URL=redis://redis:6379
       - INTERNAL_API_KEY=${INTERNAL_API_KEY}
     depends_on:
       redis:
+        condition: service_healthy
+      mongodb:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:5001/health"]
@@ -84,7 +102,10 @@ services:
     environment:
       - PORT=5002
       - NODE_ENV=${NODE_ENV:-production}
-      - MONGODB_URL=${MONGODB_URL}
+      - MONGODB_URL=${MONGODB_URL:-mongodb://mongodb:27017/cortex}
+    depends_on:
+      mongodb:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:5002/health"]
       interval: 15s
@@ -104,7 +125,7 @@ services:
     environment:
       - PORT=5003
       - NODE_ENV=${NODE_ENV:-production}
-      - MONGODB_URL=${MONGODB_URL}
+      - MONGODB_URL=${MONGODB_URL:-mongodb://mongodb:27017/cortex}
       - REDIS_URL=redis://redis:6379
       - AUTH_SERVICE=http://auth:5001
       - CHAT_SERVICE=http://chat:5002
@@ -116,13 +137,16 @@ services:
       - TAVILY_API_KEY=${TAVILY_API_KEY}
       - QDRANT_URL=${QDRANT_URL}
       - QDRANT_API_KEY=${QDRANT_API_KEY}
-      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
-      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
-      - AWS_REGION=${AWS_REGION}
-      - S3_BUCKET=${S3_BUCKET}
+      - STORAGE_PATH=/storage/uploads
+      - STORAGE_PROVIDER=local
+      - BACKEND_URL=${BACKEND_URL:-http://localhost:5000}
     depends_on:
       redis:
         condition: service_healthy
+      mongodb:
+        condition: service_healthy
+    volumes:
+      - cortex-storage:/storage/uploads
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:5003/health"]
       interval: 15s
@@ -142,11 +166,14 @@ services:
     environment:
       - PORT=5004
       - NODE_ENV=${NODE_ENV:-production}
-      - MONGODB_URL=${MONGODB_URL}
+      - MONGODB_URL=${MONGODB_URL:-mongodb://mongodb:27017/cortex}
       - AUTH_SERVICE=http://auth:5001
       - INTERNAL_API_KEY=${INTERNAL_API_KEY}
       - RAZORPAY_KEY_ID=${RAZORPAY_KEY_ID}
       - RAZORPAY_KEY_SECRET=${RAZORPAY_KEY_SECRET}
+    depends_on:
+      mongodb:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:5004/health"]
       interval: 15s
@@ -159,3 +186,7 @@ services:
 networks:
   cortex-net:
     driver: bridge
+
+volumes:
+  mongodb-data:
+  cortex-storage:

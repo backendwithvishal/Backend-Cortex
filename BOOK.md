@@ -26,7 +26,7 @@ API Gateway :5000   ← Helmet, CORS, Redis rate limiter, session validation
    └──► Billing Service :5004  Razorpay order creation and payment verification
 
 Shared Infrastructure:
-  - MongoDB Atlas (all services)
+  - MongoDB (local Docker Compose container or Atlas instance)
   - Redis (gateway sessions + agent conversation memory)
 ```
 
@@ -83,8 +83,8 @@ All `/internal/*` endpoints require an `x-internal-key` header verified against 
 |---|---|
 | **Current State** | Partially refactored |
 | **Changes Made** | Health check, graceful shutdown, standardized error handler, `x-internal-key` forwarded to auth service |
-| **Remaining** | File uploads still use local disk (Multer → local `./temp`). Should migrate to S3 for multi-instance support. |
-| **Priority** | Medium |
+| **Remaining** | None (migrated to secure local storage under `/storage/uploads` and exposed via Gateway) |
+| **Priority** | ✅ Complete |
 
 ### Billing Service (`/backend/services/billing`)
 | | |
@@ -228,7 +228,7 @@ CREATE INDEX idx_payments_user ON payments(user_id);
 | Paginated message loading (max 100 per page) | ✅ |
 | Redis conversation memory cache (24h TTL) | ✅ (existing) |
 | Response compression middleware | ⏳ Planned |
-| S3 for agent file uploads (multi-instance safe) | ⏳ Planned |
+| Modular local storage (cloud-independent) | ✅ Implemented |
 
 ---
 
@@ -293,7 +293,7 @@ CREATE INDEX idx_payments_user ON payments(user_id);
 | Feature | Priority | Complexity |
 |---|---|---|
 | RabbitMQ / BullMQ for async billing events | High | High |
-| S3 file storage in agent service | Medium | Medium |
+| Modular file storage (local / S3 adapter) | ✅ Implemented (local default) |
 | WebSocket / SSE for streaming agent responses | Medium | High |
 | Refresh token rotation | Medium | Medium |
 | RBAC (role-based access control) | Low | High |
@@ -310,3 +310,4 @@ CREATE INDEX idx_payments_user ON payments(user_id);
 | `x-internal-key` over mTLS | Simple, auditable, sufficient for a single-cluster deployment. mTLS is the right upgrade path when services span multiple clusters. |
 | Shared modules in `backend/shared/` | Eliminates drift between 4 identical `db.js` copies and ensures all services emit consistent logs and responses. |
 | `cookie-parser` + Redis sessions over JWTs | Stateful sessions allow instant invalidation on plan change or logout. JWTs are stateless and would require a denylist to achieve the same, adding similar complexity. |
+| Cloud-Independent Local Storage | Eliminates AWS vendor lock-in. Storing files locally inside `/storage/uploads` and serving them through a secure gateway API endpoint allows easy local execution (via Docker Compose) and deployability to any VPS. The storage provider is modular, allowing easy cloud adapter configuration in the future without changing business logic. |

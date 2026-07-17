@@ -1,7 +1,9 @@
 import redis from "../../../shared/redis/redis.js";
 import { graph } from "../graph/supervisor.graph.js";
 import { addMessage } from "../utils/memory.js";
-import axios from "axios"
+import axios from "axios";
+import { storage } from "../utils/storage.js";
+import path from "path";
 
 export const chat =
 async(req,res,next)=>{
@@ -94,3 +96,43 @@ await axios.post(
  }
 
 }
+
+export const getFile = async (req, res, next) => {
+  try {
+    const { filename } = req.params;
+
+    if (!filename || filename.includes("/") || filename.includes("\\")) {
+      return res.status(400).json({
+        success: false,
+        error: { code: "BAD_REQUEST", message: "Invalid file name." }
+      });
+    }
+
+    const fileStream = await storage.getFileStream(filename);
+
+    const ext = path.extname(filename).toLowerCase();
+    let contentType = "application/octet-stream";
+    if (ext === ".pdf") contentType = "application/pdf";
+    else if (ext === ".png") contentType = "image/png";
+    else if (ext === ".jpg" || ext === ".jpeg") contentType = "image/jpeg";
+    else if (ext === ".gif") contentType = "image/gif";
+    else if (ext === ".webp") contentType = "image/webp";
+    else if (ext === ".pptx") contentType = "application/vnd.openxmlformats-officedocument.presentationml.presentation";
+
+    res.setHeader("Content-Type", contentType);
+    
+    if (req.query.download === "true") {
+      res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+    }
+
+    fileStream.pipe(res);
+  } catch (error) {
+    if (error.status === 404) {
+      return res.status(404).json({
+        success: false,
+        error: { code: "NOT_FOUND", message: "File not found." }
+      });
+    }
+    next(error);
+  }
+};
