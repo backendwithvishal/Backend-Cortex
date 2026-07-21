@@ -18,6 +18,8 @@
     "express": "^5.2.1",
     "firebase-admin": "^14.0.0",
     "mongoose": "^8.18.0",
-    "nodemon": "^3.1.14"
+    "nodemon": "^3.1.14",
+    "amqplib": "^0.10.4",
+    "winston": "^3.12.0"
   }
 }

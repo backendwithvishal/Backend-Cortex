@@ -1,126 +1,100 @@
-import redis from "../../../shared/redis/redis.js";
 import { graph } from "../graph/supervisor.graph.js";
 import { addMessage } from "../utils/memory.js";
-import axios from "axios";
 import { storage } from "../utils/storage.js";
+import { sendError } from "../../../shared/response/response.js";
+import axios from "axios";
 import path from "path";
 
-export const chat =
-async(req,res,next)=>{
+const CONTENT_TYPE_MAP = {
+  ".pdf":  "application/pdf",
+  ".png":  "image/png",
+  ".jpg":  "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".gif":  "image/gif",
+  ".webp": "image/webp",
+  ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+};
 
- try{
+/**
+ * POST /api/v1/agent/chat
+ * Runs an agent workflow for the given prompt and conversation.
+ */
+export const chat = async (req, res, next) => {
+  try {
+    const { prompt, conversationId, agent } = req.body;
+    const userId = req.headers["x-user-id"];
 
-  const {
+    if (!prompt || !conversationId || !agent) {
+      return sendError(res, "prompt, conversationId, and agent are required.", 400, "MISSING_FIELDS");
+    }
 
-   prompt,
+    if (!userId) {
+      return sendError(res, "User ID header is missing.", 400, "MISSING_USER_ID");
+    }
 
-   conversationId,
+    const internalHeaders = {
+      "x-internal-key": process.env.INTERNAL_API_KEY,
+      "x-correlation-id": req.headers["x-correlation-id"] || req.id || "",
+    };
 
-   agent
+    // Persist user message to Redis memory and Chat service
+    await addMessage(conversationId, "user", prompt);
+    await axios.post(
+      `${process.env.CHAT_SERVICE}/api/v1/chat/save-message`,
+      { conversationId, role: "user", content: prompt },
+      { headers: internalHeaders }
+    );
 
-} = req.body;
+    // Execute agent graph
+    const result = await graph.invoke({
+      prompt,
+      conversationId,
+      userId,
+      agent,
+      file: req.file,
+    });
 
-console.log(req.body)
-console.log(req.file)
+    const responseContent = result.response;
+    const images = result.images || [];
+    const artifacts = result.artifacts || [];
 
-await addMessage(
- conversationId,
- "user",
- prompt
-);
+    // Persist assistant response to Redis memory and Chat service
+    await addMessage(conversationId, "assistant", responseContent);
+    await axios.post(
+      `${process.env.CHAT_SERVICE}/api/v1/chat/save-message`,
+      { conversationId, role: "assistant", content: responseContent, images, artifacts },
+      { headers: internalHeaders }
+    );
 
-await axios.post(`${process.env.CHAT_SERVICE}/save-message`,{
-  conversationId,
-  role:"user",
-  content:prompt
-})
+    return res.status(200).json({
+      success: true,
+      answer: responseContent,
+      images,
+      artifacts,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
 
-
-
-
-
-
-
-  const result =
-  await graph.invoke({
-
-   prompt,
-
-   conversationId,
-
-   userId:
-   req.headers[
-    "x-user-id"
-   ],
-   agent,
-   file:req.file
-
-  });
-
-
-  console.log("after res",result)
-
-  await addMessage(
- conversationId,
- "assistant",
- result.response
-);
-await axios.post(
- `${process.env.CHAT_SERVICE}/save-message`,
- {
-  conversationId,
-  role:"assistant",
-  content:result.response,
-  images:result.images,
-  artifacts:
-  result.artifacts || []
- }
-)
-
-  return res.json({
-
- success:true,
-
- answer:
- result.response,
- images:result.images,
- artifacts:
- result.artifacts || []
-
-});
-
- }catch(error){
-
-  next(error)
-
- }
-
-}
-
+/**
+ * GET /api/v1/agent/files/:filename
+ * Streams a locally stored file to the client.
+ */
 export const getFile = async (req, res, next) => {
   try {
     const { filename } = req.params;
 
     if (!filename || filename.includes("/") || filename.includes("\\")) {
-      return res.status(400).json({
-        success: false,
-        error: { code: "BAD_REQUEST", message: "Invalid file name." }
-      });
+      return sendError(res, "Invalid file name.", 400, "BAD_REQUEST");
     }
 
     const fileStream = await storage.getFileStream(filename);
-
     const ext = path.extname(filename).toLowerCase();
-    let contentType = "application/octet-stream";
-    if (ext === ".pdf") contentType = "application/pdf";
-    else if (ext === ".png") contentType = "image/png";
-    else if (ext === ".jpg" || ext === ".jpeg") contentType = "image/jpeg";
-    else if (ext === ".gif") contentType = "image/gif";
-    else if (ext === ".webp") contentType = "image/webp";
-    else if (ext === ".pptx") contentType = "application/vnd.openxmlformats-officedocument.presentationml.presentation";
+    const contentType = CONTENT_TYPE_MAP[ext] || "application/octet-stream";
 
     res.setHeader("Content-Type", contentType);
-    
+
     if (req.query.download === "true") {
       res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
     }
@@ -128,10 +102,7 @@ export const getFile = async (req, res, next) => {
     fileStream.pipe(res);
   } catch (error) {
     if (error.status === 404) {
-      return res.status(404).json({
-        success: false,
-        error: { code: "NOT_FOUND", message: "File not found." }
-      });
+      return sendError(res, "File not found.", 404, "NOT_FOUND");
     }
     next(error);
   }

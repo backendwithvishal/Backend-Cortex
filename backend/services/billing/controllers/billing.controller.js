@@ -1,8 +1,8 @@
 import crypto from "crypto";
-import axios from "axios";
 import razorpay from "../config/razorpay.js";
 import { PLANS } from "../config/plans.js";
 import Payment from "../models/payment.model.js";
+import rabbitMQ from "../../../shared/rabbitmq/rabbitmq.js";
 import { sendSuccess, sendError } from "../../../shared/response/response.js";
 
 // POST /create-order
@@ -82,22 +82,14 @@ export const verifyPayment = async (req, res) => {
     payment.paymentId = razorpay_payment_id;
     await payment.save();
 
-    // Notify auth service to update user's plan and credits
-    await axios.patch(
-      `${process.env.AUTH_SERVICE}/internal/update-plan`,
-      {
-        userId: payment.userId,
-        plan: payment.plan,
-        credits: payment.credits,
-      },
-      {
-        headers: {
-          "x-internal-key": process.env.INTERNAL_API_KEY,
-        },
-      }
-    );
+    // Publish event to RabbitMQ
+    await rabbitMQ.publish("billing.payment.verified", {
+      userId: payment.userId,
+      plan: payment.plan,
+      credits: payment.credits,
+    });
 
-    return sendSuccess(res, null, "Payment verified and plan updated successfully.");
+    return sendSuccess(res, null, "Payment verified and plan update event queued successfully.");
   } catch (error) {
     return sendError(res, error.message);
   }

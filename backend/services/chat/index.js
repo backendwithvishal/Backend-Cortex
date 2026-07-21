@@ -33,7 +33,7 @@ app.get("/", (req, res) => {
   res.status(200).json({ service: SERVICE, status: "ok" });
 });
 
-app.use("/", router);
+app.use("/api/v1/chat", router);
 
 // Global error handler (must be last)
 app.use(globalErrorHandler(SERVICE));

@@ -116,31 +116,41 @@ export const logout = async (req, res) => {
   }
 };
 
+// Helper to update user plan and credits, shared by HTTP controllers and RabbitMQ consumers
+export const processPlanUpdate = async (userId, plan, credits) => {
+  if (!userId || !plan || credits === undefined) {
+    const err = new Error("userId, plan, and credits are required.");
+    err.status = 400;
+    err.code = "MISSING_FIELDS";
+    throw err;
+  }
+
+  const user = await User.findById(userId);
+  if (!user) {
+    const err = new Error("User not found.");
+    err.status = 404;
+    err.code = "USER_NOT_FOUND";
+    throw err;
+  }
+
+  user.plan = plan;
+  user.credits += credits;
+  user.totalCredits += credits;
+  user.planExpiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+
+  await user.save();
+  await refreshSession(user);
+  return user;
+};
+
 // PATCH /internal/update-plan  (called by billing service after successful payment)
 export const updatePlan = async (req, res) => {
   try {
     const { userId, plan, credits } = req.body;
-
-    if (!userId || !plan || credits === undefined) {
-      return sendError(res, "userId, plan, and credits are required.", 400, "MISSING_FIELDS");
-    }
-
-    const user = await User.findById(userId);
-    if (!user) {
-      return sendError(res, "User not found.", 404, "USER_NOT_FOUND");
-    }
-
-    user.plan = plan;
-    user.credits += credits;
-    user.totalCredits += credits;
-    user.planExpiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
-
-    await user.save();
-    await refreshSession(user);
-
+    await processPlanUpdate(userId, plan, credits);
     return sendSuccess(res, null, "Plan updated successfully.");
   } catch (error) {
-    return sendError(res, error.message);
+    return sendError(res, error.message, error.status || 500, error.code || "INTERNAL_SERVER_ERROR");
   }
 };
 

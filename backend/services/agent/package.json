@@ -32,6 +32,8 @@
     "pdf-parse": "^2.4.5",
     "pdfkit": "^0.19.1",
     "pptxgenjs": "^4.0.1",
-    "tavily": "^2.0.0"
+    "tavily": "^2.0.0",
+    "amqplib": "^0.10.4",
+    "winston": "^3.12.0"
   }
 }

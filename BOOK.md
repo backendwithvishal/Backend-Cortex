@@ -192,8 +192,8 @@ CREATE INDEX idx_payments_user ON payments(user_id);
 | Field validation on all controller inputs | ✅ Implemented |
 | HTTP `201 Created` for resource creation | ✅ Implemented |
 | `404 Not Found` for missing records | ✅ Implemented |
-| API versioning (`/api/v1/`) | ⏳ Planned — Phase 2 |
-| OpenAPI / Swagger spec | ⏳ Planned — Phase 2 |
+| API versioning (`/api/v1/`) | ✅ Implemented |
+| OpenAPI / Swagger spec | ✅ Implemented |
 | Filtering and sorting parameters | ⏳ Planned — Phase 2 |
 
 ---

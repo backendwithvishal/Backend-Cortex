@@ -20,16 +20,16 @@ describe("Gateway — Health & Root", () => {
 });
 
 describe("Gateway — Authentication Guard", () => {
-  it("GET /api/me without session cookie returns 401 UNAUTHORIZED", async () => {
-    const res = await request(app).get("/api/me");
+  it("GET /api/v1/me without session cookie returns 401 UNAUTHORIZED", async () => {
+    const res = await request(app).get("/api/v1/me");
     expect(res.status).toBe(401);
     expect(res.body.success).toBe(false);
     expect(res.body.error.code).toBe("UNAUTHORIZED");
   });
 
-  it("GET /api/me with session cookie passes auth guard", async () => {
+  it("GET /api/v1/me with session cookie passes auth guard", async () => {
     const res = await request(app)
-      .get("/api/me")
+      .get("/api/v1/me")
       .set("Cookie", "session=fake-session-id");
     // Without real Redis, this reaches the stub handler (200)
     expect(res.status).toBe(200);
@@ -39,7 +39,7 @@ describe("Gateway — Authentication Guard", () => {
 
 describe("Gateway — 404 Handling", () => {
   it("Unknown route returns 404 with structured error", async () => {
-    const res = await request(app).get("/api/does-not-exist");
+    const res = await request(app).get("/api/v1/does-not-exist");
     expect(res.status).toBe(404);
     expect(res.body.success).toBe(false);
     expect(res.body.error.code).toBe("NOT_FOUND");
@@ -48,7 +48,7 @@ describe("Gateway — 404 Handling", () => {
 
 describe("Gateway — Response Shape Consistency", () => {
   it("All error responses include success:false and error.code", async () => {
-    const res = await request(app).get("/api/me"); // no cookie
+    const res = await request(app).get("/api/v1/me"); // no cookie
     expect(res.body).toHaveProperty("success", false);
     expect(res.body).toHaveProperty("error");
     expect(res.body.error).toHaveProperty("code");

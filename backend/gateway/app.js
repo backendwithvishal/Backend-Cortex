@@ -31,7 +31,7 @@ app.get("/", (req, res) => {
 });
 
 // Stub routes for testing middleware in isolation
-app.get("/api/me", (req, res) => {
+app.get("/api/v1/me", (req, res) => {
   const sessionCookie = req.cookies?.session;
   if (!sessionCookie) {
     return res.status(401).json({

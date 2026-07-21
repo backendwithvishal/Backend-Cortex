@@ -2,80 +2,37 @@ import multer from "multer";
 import path from "path";
 import fs from "fs";
 
-const uploadDir = path.resolve("./temp");
+const UPLOAD_DIR = path.resolve("./temp");
+const MAX_FILE_SIZE = 20 * 1024 * 1024; // 20 MB
 
-if (!fs.existsSync(uploadDir)) {
-
-    fs.mkdirSync(uploadDir, {
-
-        recursive: true
-
-    });
-
+// Ensure temp upload directory exists at startup
+if (!fs.existsSync(UPLOAD_DIR)) {
+  fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 }
 
-const storage = multer.diskStorage({
-
-    destination(req,file,cb){
-
-        cb(null,uploadDir);
-
-    },
-
-    filename(req,file,cb){
-
-        cb(
-
-            null,
-
-            `${Date.now()}-${file.originalname}`
-
-        );
-
-    }
-
+const diskStorage = multer.diskStorage({
+  destination(_req, _file, cb) {
+    cb(null, UPLOAD_DIR);
+  },
+  filename(_req, file, cb) {
+    cb(null, `${Date.now()}-${file.originalname}`);
+  },
 });
 
-const fileFilter=(req,file,cb)=>{
-
-    if(
-
-        file.mimetype==="application/pdf" ||
-
-        file.mimetype.startsWith("image/")
-
-    ){
-
-        cb(null,true);
-
-    }
-
-    else{
-
-        cb(
-
-            new Error(
-
-                "Only PDF and Images are allowed."
-
-            )
-
-        );
-
-    }
-
+/**
+ * Rejects any file that is neither a PDF nor an image.
+ */
+const fileFilter = (_req, file, cb) => {
+  const allowed = file.mimetype === "application/pdf" || file.mimetype.startsWith("image/");
+  if (allowed) {
+    cb(null, true);
+  } else {
+    cb(new Error("Only PDF and image files are accepted."));
+  }
 };
 
 export default multer({
-
-    storage,
-
-    fileFilter,
-
-    limits:{
-
-        fileSize:20*1024*1024
-
-    }
-
+  storage: diskStorage,
+  fileFilter,
+  limits: { fileSize: MAX_FILE_SIZE },
 });
