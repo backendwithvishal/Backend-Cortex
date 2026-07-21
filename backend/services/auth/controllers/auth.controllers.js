@@ -24,7 +24,7 @@ const buildSessionPayload = (user) => ({
 
 /**
  * Refreshes the Redis session for a user if an active session exists.
- * Used after any operation that mutates credits or plan.
+ * Used after any operation that mutates credits or plan or profile details.
  */
 const refreshSession = async (user) => {
   const sessionId = await redis.get(`user-session:${user._id}`);
@@ -111,6 +111,55 @@ export const logout = async (req, res) => {
     });
 
     return sendSuccess(res, null, "Logged out successfully.");
+  } catch (error) {
+    return sendError(res, error.message);
+  }
+};
+
+// GET /profile  (fetches current user details from DB)
+export const getProfile = async (req, res) => {
+  try {
+    const userId = req.headers["x-user-id"];
+    if (!userId) {
+      return sendError(res, "User ID header is missing.", 400, "MISSING_USER_ID");
+    }
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return sendError(res, "User not found.", 404, "USER_NOT_FOUND");
+    }
+
+    return sendSuccess(res, { user });
+  } catch (error) {
+    return sendError(res, error.message);
+  }
+};
+
+// PATCH /profile  (updates user name or avatar)
+export const updateProfile = async (req, res) => {
+  try {
+    const userId = req.headers["x-user-id"];
+    if (!userId) {
+      return sendError(res, "User ID header is missing.", 400, "MISSING_USER_ID");
+    }
+
+    const { name, avatar } = req.body;
+    const updates = {};
+    if (name) updates.name = name.trim();
+    if (avatar !== undefined) updates.avatar = avatar.trim();
+
+    const user = await User.findByIdAndUpdate(
+      userId,
+      updates,
+      { new: true, runValidators: true }
+    );
+
+    if (!user) {
+      return sendError(res, "User not found.", 404, "USER_NOT_FOUND");
+    }
+
+    await refreshSession(user);
+    return sendSuccess(res, { user }, "Profile updated successfully.");
   } catch (error) {
     return sendError(res, error.message);
   }

@@ -115,34 +115,39 @@ docker compose down
 
 ---
 
-## API Reference
+## API Reference & Documentation
 
-All routes go through the gateway at `http://localhost:5000`.
+All routes go through the API Gateway at `http://localhost:5000/api/v1`.
+
+Interactive OpenAPI / Swagger Documentation is available at:
+`http://localhost:5000/api/v1/docs`
 
 ### Authentication
 
 | Method | Endpoint | Auth | Body | Description |
 |--------|----------|------|------|-------------|
-| `POST` | `/api/auth/login` | ❌ | `{ token }` | Login with Firebase ID token |
-| `GET`  | `/api/auth/logout` | ❌ | — | Invalidate session |
-| `GET`  | `/api/me` | ✅ | — | Get current user from session |
+| `POST` | `/api/v1/auth/login` | ❌ | `{ token }` | Login with Firebase ID token |
+| `GET`  | `/api/v1/auth/logout` | ❌ | — | Invalidate session |
+| `GET`  | `/api/v1/auth/profile` | ✅ | — | Get user profile details |
+| `PATCH`| `/api/v1/auth/profile` | ✅ | `{ name?, avatar? }` | Update user name/avatar |
+| `GET`  | `/api/v1/me` | ✅ | — | Get current session user payload |
 
 ### Chat
 
 | Method | Endpoint | Auth | Body / Query | Description |
 |--------|----------|------|--------------|-------------|
-| `POST` | `/api/chat/create-conversation` | ✅ | — | Create a new conversation |
-| `GET`  | `/api/chat/get-conversations` | ✅ | — | List user conversations |
-| `POST` | `/api/chat/update-conversation` | ✅ | `{ conversationId, title }` | Rename conversation |
-| `POST` | `/api/chat/save-message` | ✅ | `{ conversationId, role, content, images?, artifacts? }` | Save a message |
-| `GET`  | `/api/chat/get-messages/:id` | ✅ | `?page=1&limit=30` | Paginated message history |
+| `POST` | `/api/v1/chat/create-conversation` | ✅ | — | Create a new conversation |
+| `GET`  | `/api/v1/chat/get-conversations` | ✅ | — | List user conversations |
+| `POST` | `/api/v1/chat/update-conversation` | ✅ | `{ conversationId, title }` | Rename conversation |
+| `POST` | `/api/v1/chat/save-message` | ✅ | `{ conversationId, role, content, images?, artifacts? }` | Save a message |
+| `GET`  | `/api/v1/chat/get-messages/:id` | ✅ | `?page=1&limit=30` | Paginated message history |
 
 ### Agent
 
 | Method | Endpoint | Auth | Body | Description |
 |--------|----------|------|------|-------------|
-| `POST` | `/api/agent/chat` | ✅ | `{ prompt, conversationId, agent }` + optional `file` | Run an agent |
-| `GET`  | `/api/agent/files/:filename` | ✅ | — | Securely fetch/download locally stored files (`?download=true` for attachment) |
+| `POST` | `/api/v1/agent/chat` | ✅ | `{ prompt, conversationId, agent }` + optional `file` | Run an agent |
+| `GET`  | `/api/v1/agent/files/:filename` | ✅ | — | Fetch/download locally stored files (`?download=true`) |
 
 **Agent types**: `chat`, `coding`, `search`, `pdf`, `ppt`, `image`, `vision`, `pdf_rag`
 
@@ -150,8 +155,8 @@ All routes go through the gateway at `http://localhost:5000`.
 
 | Method | Endpoint | Auth | Body | Description |
 |--------|----------|------|------|-------------|
-| `POST` | `/api/billing/create-order` | ✅ | `{ plan }` | Create a Razorpay order |
-| `POST` | `/api/billing/verify-payment` | ✅ | `{ razorpay_order_id, razorpay_payment_id, razorpay_signature }` | Verify and activate plan |
+| `POST` | `/api/v1/billing/create-order` | ✅ | `{ plan }` | Create a Razorpay order |
+| `POST` | `/api/v1/billing/verify-payment` | ✅ | `{ razorpay_order_id, razorpay_payment_id, razorpay_signature }` | Verify payment & queue event |
 
 ### Standard Response Format
 
