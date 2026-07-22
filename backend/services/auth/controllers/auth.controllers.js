@@ -206,7 +206,17 @@ export const processPlanUpdate = async (userId, plan, credits) => {
     throw err;
   }
 
-  const user = await User.findById(userId);
+  const planExpiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+
+  const user = await User.findByIdAndUpdate(
+    userId,
+    {
+      $set: { plan, planExpiresAt },
+      $inc: { credits: credits, totalCredits: credits }
+    },
+    { new: true, runValidators: true }
+  );
+
   if (!user) {
     const err = new Error("User not found.");
     err.status = 404;
@@ -214,12 +224,6 @@ export const processPlanUpdate = async (userId, plan, credits) => {
     throw err;
   }
 
-  user.plan = plan;
-  user.credits += credits;
-  user.totalCredits += credits;
-  user.planExpiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
-
-  await user.save();
   await refreshSession(user);
   return user;
 };
@@ -253,14 +257,21 @@ export const deductCredits = async (req, res) => {
       image: 10,
     };
 
-    const user = await User.findById(userId);
-    if (!user) {
-      return sendError(res, "User not found.", 404, "USER_NOT_FOUND");
-    }
-
     const requiredCredits = CREDIT_COSTS[agent] ?? 1;
 
-    if (user.credits < requiredCredits) {
+    // Atomic credit deduction preventing race conditions
+    const user = await User.findOneAndUpdate(
+      { _id: userId, credits: { $gte: requiredCredits } },
+      { $inc: { credits: -requiredCredits } },
+      { new: true }
+    );
+
+    if (!user) {
+      // Check if user exists at all to return proper error
+      const userExists = await User.exists({ _id: userId });
+      if (!userExists) {
+        return sendError(res, "User not found.", 404, "USER_NOT_FOUND");
+      }
       return sendError(
         res,
         "Insufficient credits. Please upgrade your plan.",
@@ -269,8 +280,6 @@ export const deductCredits = async (req, res) => {
       );
     }
 
-    user.credits -= requiredCredits;
-    await user.save();
     await refreshSession(user);
 
     return sendSuccess(res, { credits: user.credits }, "Credits deducted successfully.");

@@ -1,6 +1,7 @@
 import express from "express";
 import cors from "cors";
 import helmet from "helmet";
+import compression from "compression";
 import http from "http";
 import cookieParser from "cookie-parser";
 import crypto from "crypto";
@@ -57,8 +58,9 @@ app.use((req, res, next) => {
   next();
 });
 
-// Helmet Configuration
+// Helmet & Compression Configuration
 app.use(helmet());
+app.use(compression());
 app.use(cookieParser());
 
 // Dynamic CORS Configuration
@@ -79,18 +81,29 @@ app.use(express.json());
 // Serve static uploads
 app.use("/uploads", express.static("uploads"));
 
+// Fail-fast environment check
+if (!process.env.INTERNAL_API_KEY && process.env.NODE_ENV === "production") {
+  logger.error("FATAL: INTERNAL_API_KEY environment variable is not configured.");
+  process.exit(1);
+}
+
 // CSRF Protection Middleware
 const csrfProtection = (req, res, next) => {
   const sessionCookie = req.cookies?.session;
   
   if (sessionCookie && ["POST", "PUT", "DELETE", "PATCH"].includes(req.method)) {
     const csrfToken = req.headers["x-csrf-token"] || req.query._csrf;
+    const internalKey = process.env.INTERNAL_API_KEY || "csrf-fallback-secret";
     const expectedToken = crypto
-      .createHmac("sha256", process.env.INTERNAL_API_KEY || "csrf-fallback-secret")
+      .createHmac("sha256", internalKey)
       .update(sessionCookie)
       .digest("hex");
 
-    if (!csrfToken || csrfToken !== expectedToken) {
+    const tokenValid = csrfToken && 
+      csrfToken.length === expectedToken.length && 
+      crypto.timingSafeEqual(Buffer.from(csrfToken), Buffer.from(expectedToken));
+
+    if (!tokenValid) {
       logger.warn(`CSRF validation failed for session ${sessionCookie.slice(0, 8)}...`);
       return res.status(403).json({
         success: false,
@@ -101,8 +114,9 @@ const csrfProtection = (req, res, next) => {
 
   // Generate and set token for client
   if (sessionCookie) {
+    const internalKey = process.env.INTERNAL_API_KEY || "csrf-fallback-secret";
     const nextToken = crypto
-      .createHmac("sha256", process.env.INTERNAL_API_KEY || "csrf-fallback-secret")
+      .createHmac("sha256", internalKey)
       .update(sessionCookie)
       .digest("hex");
     res.setHeader("x-csrf-token", nextToken);
@@ -212,6 +226,9 @@ app.use("/api/v1/auth/login", loginLimiter, proxy(process.env.AUTH_SERVICE, {
   proxyReqPathResolver: () => "/api/v1/auth/login",
   proxyErrorHandler: (err, res, next) => next(err)
 }));
+
+// Auth profile routes require session protection to populate verified x-user-id
+app.use("/api/v1/auth/profile", protect, proxyWithUser(process.env.AUTH_SERVICE));
 
 app.use("/api/v1/auth", proxy(process.env.AUTH_SERVICE, {
   proxyReqPathResolver: (req) => `/api/v1/auth${req.url}`,

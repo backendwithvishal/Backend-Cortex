@@ -35,6 +35,21 @@ describe("Gateway — Authentication Guard", () => {
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
   });
+
+  it("GET /api/v1/auth/profile without session cookie returns 401 UNAUTHORIZED", async () => {
+    const res = await request(app).get("/api/v1/auth/profile");
+    expect(res.status).toBe(401);
+    expect(res.body.success).toBe(false);
+    expect(res.body.error.code).toBe("UNAUTHORIZED");
+  });
+
+  it("GET /api/v1/auth/profile with session cookie passes auth guard", async () => {
+    const res = await request(app)
+      .get("/api/v1/auth/profile")
+      .set("Cookie", "session=fake-session-id");
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+  });
 });
 
 describe("Gateway — 404 Handling", () => {

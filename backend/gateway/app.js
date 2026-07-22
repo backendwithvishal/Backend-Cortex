@@ -6,11 +6,13 @@
 import express from "express";
 import cors from "cors";
 import helmet from "helmet";
+import compression from "compression";
 import cookieParser from "cookie-parser";
 
 const app = express();
 
 app.use(helmet());
+app.use(compression());
 app.use(cookieParser());
 app.use(cors({ origin: "http://localhost:5173", credentials: true }));
 app.use(express.json());
@@ -32,6 +34,17 @@ app.get("/", (req, res) => {
 
 // Stub routes for testing middleware in isolation
 app.get("/api/v1/me", (req, res) => {
+  const sessionCookie = req.cookies?.session;
+  if (!sessionCookie) {
+    return res.status(401).json({
+      success: false,
+      error: { code: "UNAUTHORIZED", message: "Authentication required." },
+    });
+  }
+  res.status(200).json({ success: true, data: { user: { email: "test@example.com" } } });
+});
+
+app.get("/api/v1/auth/profile", (req, res) => {
   const sessionCookie = req.cookies?.session;
   if (!sessionCookie) {
     return res.status(401).json({

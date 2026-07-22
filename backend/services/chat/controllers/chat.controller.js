@@ -88,6 +88,7 @@ export const deleteConversation = async (req, res) => {
 export const updateConversation = async (req, res) => {
   try {
     const { conversationId, title } = req.body;
+    const userId = req.headers["x-user-id"];
 
     if (!conversationId || !title) {
       return sendError(res, "conversationId and title are required.", 400, "MISSING_FIELDS");
@@ -97,14 +98,17 @@ export const updateConversation = async (req, res) => {
       return sendError(res, "Invalid conversation ID.", 400, "INVALID_ID");
     }
 
-    const conversation = await Conversation.findByIdAndUpdate(
-      conversationId,
+    const filter = { _id: conversationId, deletedAt: null };
+    if (userId) filter.userId = userId;
+
+    const conversation = await Conversation.findOneAndUpdate(
+      filter,
       { title },
       { new: true, runValidators: true }
     );
 
     if (!conversation) {
-      return sendError(res, "Conversation not found.", 404, "NOT_FOUND");
+      return sendError(res, "Conversation not found or access denied.", 404, "NOT_FOUND");
     }
 
     return sendSuccess(res, { conversation }, "Conversation updated.");
@@ -117,6 +121,7 @@ export const updateConversation = async (req, res) => {
 export const saveMessage = async (req, res) => {
   try {
     const { conversationId, role, content, images, artifacts } = req.body;
+    const userId = req.headers["x-user-id"];
 
     if (!conversationId || !role || !content) {
       return sendError(res, "conversationId, role, and content are required.", 400, "MISSING_FIELDS");
@@ -124,6 +129,14 @@ export const saveMessage = async (req, res) => {
 
     if (!isValidObjectId(conversationId)) {
       return sendError(res, "Invalid conversation ID.", 400, "INVALID_ID");
+    }
+
+    // Verify conversation existence & ownership if requested via gateway user context
+    if (userId) {
+      const conversation = await Conversation.findOne({ _id: conversationId, userId, deletedAt: null });
+      if (!conversation) {
+        return sendError(res, "Conversation not found or access denied.", 404, "NOT_FOUND");
+      }
     }
 
     const message = await Message.create({
@@ -144,12 +157,21 @@ export const saveMessage = async (req, res) => {
 export const getMessages = async (req, res) => {
   try {
     const { id: conversationId } = req.params;
+    const userId = req.headers["x-user-id"];
     const page = Math.max(1, parseInt(req.query.page) || 1);
     const limit = Math.min(100, parseInt(req.query.limit) || DEFAULT_PAGE_LIMIT);
     const skip = (page - 1) * limit;
 
     if (!isValidObjectId(conversationId)) {
       return sendError(res, "Invalid conversation ID.", 400, "INVALID_ID");
+    }
+
+    // Verify conversation existence & ownership if requested via gateway user context
+    if (userId) {
+      const conversation = await Conversation.findOne({ _id: conversationId, userId, deletedAt: null });
+      if (!conversation) {
+        return sendError(res, "Conversation not found or access denied.", 404, "NOT_FOUND");
+      }
     }
 
     const [messages, total] = await Promise.all([
