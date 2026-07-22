@@ -34,6 +34,7 @@ export const chat = async (req, res, next) => {
 
     const internalHeaders = {
       "x-internal-key": process.env.INTERNAL_API_KEY,
+      "x-user-id": userId,
       "x-correlation-id": req.headers["x-correlation-id"] || req.id || "",
     };
 
@@ -125,6 +126,20 @@ export const streamChat = async (req, res, next) => {
       return sendError(res, "User ID header is missing.", 400, "MISSING_USER_ID");
     }
 
+    const internalHeaders = {
+      "x-internal-key": process.env.INTERNAL_API_KEY,
+      "x-user-id": userId,
+      "x-correlation-id": req.headers["x-correlation-id"] || req.id || "",
+    };
+
+    // Persist user prompt to Redis memory and Chat service
+    await addMessage(conversationId, "user", prompt);
+    await axios.post(
+      `${process.env.CHAT_SERVICE}/api/v1/chat/save-message`,
+      { conversationId, role: "user", content: prompt },
+      { headers: internalHeaders }
+    );
+
     res.setHeader("Content-Type", "text/event-stream");
     res.setHeader("Cache-Control", "no-cache");
     res.setHeader("Connection", "keep-alive");
@@ -142,6 +157,14 @@ export const streamChat = async (req, res, next) => {
     const responseContent = result.response;
     const images = result.images || [];
     const artifacts = result.artifacts || [];
+
+    // Persist assistant completion to Redis memory and Chat service
+    await addMessage(conversationId, "assistant", responseContent);
+    await axios.post(
+      `${process.env.CHAT_SERVICE}/api/v1/chat/save-message`,
+      { conversationId, role: "assistant", content: responseContent, images, artifacts },
+      { headers: internalHeaders }
+    );
 
     res.write(`data: ${JSON.stringify({ type: "chunk", content: responseContent })}\n\n`);
     res.write(`data: ${JSON.stringify({ type: "end", images, artifacts })}\n\n`);

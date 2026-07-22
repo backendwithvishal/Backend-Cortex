@@ -65,7 +65,11 @@ export const verifyPayment = async (req, res) => {
       .update(`${razorpay_order_id}|${razorpay_payment_id}`)
       .digest("hex");
 
-    if (expectedSignature !== razorpay_signature) {
+    const signatureValid = razorpay_signature &&
+      razorpay_signature.length === expectedSignature.length &&
+      crypto.timingSafeEqual(Buffer.from(razorpay_signature), Buffer.from(expectedSignature));
+
+    if (!signatureValid) {
       return sendError(res, "Payment signature verification failed.", 400, "INVALID_SIGNATURE");
     }
 
