@@ -15,6 +15,7 @@ import redis from "../shared/redis/redis.js";
 import rabbitMQ from "../shared/rabbitmq/rabbitmq.js";
 import getLogger from "../shared/logging/logger.js";
 import requestTrackerMiddleware from "../shared/middleware/requestTracker.js";
+import { metricsMiddleware, getMetrics } from "../shared/metrics/metrics.js";
 import { gracefulShutdown } from "../shared/shutdown/gracefulShutdown.js";
 import { protect } from "./middlewares/auth.middleware.js";
 import { getCurrentUser } from "./controllers/user.controller.js";
@@ -39,6 +40,7 @@ initSocket(server, allowedOrigins);
 
 // Middleware Pipeline
 app.use(requestTrackerMiddleware);
+app.use(metricsMiddleware);
 
 // Winston Request logging middleware
 app.use((req, res, next) => {
@@ -181,7 +183,9 @@ const swaggerOptions = {
 const swaggerSpec = swaggerJsdoc(swaggerOptions);
 app.use("/api/v1/docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
-// Health Checks
+// Health Checks & Metrics
+app.get("/metrics", getMetrics(SERVICE));
+
 app.get("/health", async (req, res) => {
   const redisStatus = redis.status;
   const rabbitMQStatus = rabbitMQ.isConnected ? "connected" : "disconnected";

@@ -4,6 +4,7 @@ import {
   getProfile,
   login,
   logout,
+  refreshToken,
   updatePlan,
   updateProfile,
 } from "../controllers/auth.controllers.js";
@@ -13,6 +14,7 @@ const router = express.Router();
 
 router.post("/login", login);
 router.get("/logout", logout);
+router.post("/refresh", refreshToken);
 router.get("/profile", getProfile);
 router.patch("/profile", updateProfile);
 

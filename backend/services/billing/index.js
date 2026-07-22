@@ -3,6 +3,7 @@ import dotenv from "dotenv";
 import { connectDB, disconnectDB, getDBStatus } from "../../../shared/db/connectDB.js";
 import { globalErrorHandler } from "../../../shared/response/response.js";
 import { gracefulShutdown } from "../../../shared/shutdown/gracefulShutdown.js";
+import { metricsMiddleware, getMetrics } from "../../../shared/metrics/metrics.js";
 import rabbitMQ from "../../../shared/rabbitmq/rabbitmq.js";
 import router from "./routes/billing.routes.js";
 
@@ -13,6 +14,9 @@ const PORT = process.env.PORT || 5004;
 const SERVICE = "billing";
 
 app.use(express.json());
+app.use(metricsMiddleware);
+
+app.get("/metrics", getMetrics(SERVICE));
 
 // Health check
 app.get("/health", (req, res) => {

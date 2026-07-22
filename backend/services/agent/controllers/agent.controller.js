@@ -107,3 +107,51 @@ export const getFile = async (req, res, next) => {
     next(error);
   }
 };
+
+/**
+ * POST /api/v1/agent/stream
+ * Streams agent response chunks in real-time via Server-Sent Events (SSE).
+ */
+export const streamChat = async (req, res, next) => {
+  try {
+    const { prompt, conversationId, agent } = req.body;
+    const userId = req.headers["x-user-id"];
+
+    if (!prompt || !conversationId || !agent) {
+      return sendError(res, "prompt, conversationId, and agent are required.", 400, "MISSING_FIELDS");
+    }
+
+    if (!userId) {
+      return sendError(res, "User ID header is missing.", 400, "MISSING_USER_ID");
+    }
+
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache");
+    res.setHeader("Connection", "keep-alive");
+
+    res.write(`data: ${JSON.stringify({ type: "start", agent })}\n\n`);
+
+    const result = await graph.invoke({
+      prompt,
+      conversationId,
+      userId,
+      agent,
+      file: req.file,
+    });
+
+    const responseContent = result.response;
+    const images = result.images || [];
+    const artifacts = result.artifacts || [];
+
+    res.write(`data: ${JSON.stringify({ type: "chunk", content: responseContent })}\n\n`);
+    res.write(`data: ${JSON.stringify({ type: "end", images, artifacts })}\n\n`);
+    res.end();
+  } catch (error) {
+    if (!res.headersSent) {
+      next(error);
+    } else {
+      res.write(`data: ${JSON.stringify({ type: "error", message: error.message })}\n\n`);
+      res.end();
+    }
+  }
+};

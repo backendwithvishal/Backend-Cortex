@@ -101,6 +101,11 @@ export const logout = async (req, res) => {
     const sessionId = req.cookies?.session;
 
     if (sessionId) {
+      const sessionDataRaw = await redis.get(`session:${sessionId}`);
+      if (sessionDataRaw) {
+        const sessionData = JSON.parse(sessionDataRaw);
+        await redis.del(`user-session:${sessionData.userId}`);
+      }
       await redis.del(`session:${sessionId}`);
     }
 
@@ -111,6 +116,33 @@ export const logout = async (req, res) => {
     });
 
     return sendSuccess(res, null, "Logged out successfully.");
+  } catch (error) {
+    return sendError(res, error.message);
+  }
+};
+
+// POST /refresh  (refreshes current active session)
+export const refreshToken = async (req, res) => {
+  try {
+    const sessionId = req.cookies?.session;
+    if (!sessionId) {
+      return sendError(res, "No active session found.", 401, "UNAUTHORIZED");
+    }
+
+    const sessionDataRaw = await redis.get(`session:${sessionId}`);
+    if (!sessionDataRaw) {
+      return sendError(res, "Session expired or invalid.", 401, "SESSION_EXPIRED");
+    }
+
+    const sessionData = JSON.parse(sessionDataRaw);
+    const user = await User.findById(sessionData.userId);
+    if (!user) {
+      return sendError(res, "User not found.", 404, "USER_NOT_FOUND");
+    }
+
+    await refreshSession(user);
+
+    return sendSuccess(res, { user }, "Session refreshed successfully.");
   } catch (error) {
     return sendError(res, error.message);
   }

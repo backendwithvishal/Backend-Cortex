@@ -23,7 +23,7 @@ export const createConversation = async (req, res) => {
   }
 };
 
-// GET /get-conversations
+// GET /get-conversations?search=abc&sort=asc&page=1&limit=20
 export const getConversations = async (req, res) => {
   try {
     const userId = req.headers["x-user-id"];
@@ -32,12 +32,53 @@ export const getConversations = async (req, res) => {
       return sendError(res, "User ID header is missing.", 400, "MISSING_USER_ID");
     }
 
-    const conversations = await Conversation.find({
+    const search = req.query.search || "";
+    const sortOrder = req.query.sort === "asc" ? 1 : -1;
+    const page = Math.max(1, parseInt(req.query.page) || 1);
+    const limit = Math.min(100, parseInt(req.query.limit) || DEFAULT_PAGE_LIMIT);
+    const skip = (page - 1) * limit;
+
+    const filter = {
       userId,
       deletedAt: null,
-    }).sort({ updatedAt: -1 });
+      ...(search && { title: { $regex: search, $options: "i" } }),
+    };
 
-    return sendSuccess(res, { conversations });
+    const [conversations, total] = await Promise.all([
+      Conversation.find(filter)
+        .sort({ updatedAt: sortOrder })
+        .skip(skip)
+        .limit(limit),
+      Conversation.countDocuments(filter),
+    ]);
+
+    return sendPaginated(res, conversations, total, page, limit);
+  } catch (error) {
+    return sendError(res, error.message);
+  }
+};
+
+// DELETE /conversations/:id
+export const deleteConversation = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const userId = req.headers["x-user-id"];
+
+    if (!id || !isValidObjectId(id)) {
+      return sendError(res, "Valid conversation ID is required.", 400, "INVALID_ID");
+    }
+
+    const conversation = await Conversation.findOneAndUpdate(
+      { _id: id, userId, deletedAt: null },
+      { deletedAt: new Date() },
+      { new: true }
+    );
+
+    if (!conversation) {
+      return sendError(res, "Conversation not found or already deleted.", 404, "NOT_FOUND");
+    }
+
+    return sendSuccess(res, { conversationId: id }, "Conversation deleted successfully.");
   } catch (error) {
     return sendError(res, error.message);
   }
