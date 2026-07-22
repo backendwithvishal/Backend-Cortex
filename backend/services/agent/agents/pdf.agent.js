@@ -10,7 +10,6 @@ import { deductCredits } from "../utils/deductCredits.js";
 export const pdfAgent = async (state) => {
   try {
     await checkAgentLimit(state.userId, "pdf");
-    await deductCredits(state.userId, "pdf");
 
     const llm = getModel("pdf");
 
@@ -64,7 +63,10 @@ Rules:
     // Cover Title & Metadata
     doc.fontSize(26).fillColor("#111827").text(generatedTitle, { align: "center" });
     doc.moveDown();
-    doc.fontSize(10).fillColor("#6B7280").text(`Generated on ${new Date().toLocaleString()}`, { align: "center" });
+    doc
+      .fontSize(10)
+      .fillColor("#6B7280")
+      .text(`Generated on ${new Date().toLocaleString()}`, { align: "center" });
     doc.moveDown(3);
 
     // Content Body
@@ -81,6 +83,8 @@ Rules:
     const pdfBuffer = Buffer.concat(chunks);
     await storage.saveFile(pdfBuffer, fileName, "application/pdf");
     const downloadUrl = await storage.getDownloadUrl(fileName);
+
+    await deductCredits(state.userId, "pdf");
 
     return {
       ...state,

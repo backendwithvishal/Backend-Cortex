@@ -45,10 +45,7 @@ export const getConversations = async (req, res) => {
     };
 
     const [conversations, total] = await Promise.all([
-      Conversation.find(filter)
-        .sort({ updatedAt: sortOrder })
-        .skip(skip)
-        .limit(limit),
+      Conversation.find(filter).sort({ updatedAt: sortOrder }).skip(skip).limit(limit),
       Conversation.countDocuments(filter),
     ]);
 
@@ -90,6 +87,10 @@ export const updateConversation = async (req, res) => {
     const { conversationId, title } = req.body;
     const userId = req.headers["x-user-id"];
 
+    if (!userId) {
+      return sendError(res, "User ID header is missing.", 400, "MISSING_USER_ID");
+    }
+
     if (!conversationId || !title) {
       return sendError(res, "conversationId and title are required.", 400, "MISSING_FIELDS");
     }
@@ -98,11 +99,8 @@ export const updateConversation = async (req, res) => {
       return sendError(res, "Invalid conversation ID.", 400, "INVALID_ID");
     }
 
-    const filter = { _id: conversationId, deletedAt: null };
-    if (userId) filter.userId = userId;
-
     const conversation = await Conversation.findOneAndUpdate(
-      filter,
+      { _id: conversationId, userId, deletedAt: null },
       { title },
       { new: true, runValidators: true }
     );
@@ -123,24 +121,35 @@ export const saveMessage = async (req, res) => {
     const { conversationId, role, content, images, artifacts } = req.body;
     const userId = req.headers["x-user-id"];
 
+    if (!userId) {
+      return sendError(res, "User ID header is missing.", 400, "MISSING_USER_ID");
+    }
+
     if (!conversationId || !role || !content) {
-      return sendError(res, "conversationId, role, and content are required.", 400, "MISSING_FIELDS");
+      return sendError(
+        res,
+        "conversationId, role, and content are required.",
+        400,
+        "MISSING_FIELDS"
+      );
     }
 
     if (!isValidObjectId(conversationId)) {
       return sendError(res, "Invalid conversation ID.", 400, "INVALID_ID");
     }
 
-    // Verify conversation existence & ownership if requested via gateway user context
-    if (userId) {
-      const conversation = await Conversation.findOne({ _id: conversationId, userId, deletedAt: null });
-      if (!conversation) {
-        return sendError(res, "Conversation not found or access denied.", 404, "NOT_FOUND");
-      }
+    const conversation = await Conversation.findOne({
+      _id: conversationId,
+      userId,
+      deletedAt: null,
+    });
+    if (!conversation) {
+      return sendError(res, "Conversation not found or access denied.", 404, "NOT_FOUND");
     }
 
     const message = await Message.create({
       conversationId,
+      userId,
       role,
       content,
       images: images || [],
@@ -162,24 +171,27 @@ export const getMessages = async (req, res) => {
     const limit = Math.min(100, parseInt(req.query.limit) || DEFAULT_PAGE_LIMIT);
     const skip = (page - 1) * limit;
 
+    if (!userId) {
+      return sendError(res, "User ID header is missing.", 400, "MISSING_USER_ID");
+    }
+
     if (!isValidObjectId(conversationId)) {
       return sendError(res, "Invalid conversation ID.", 400, "INVALID_ID");
     }
 
-    // Verify conversation existence & ownership if requested via gateway user context
-    if (userId) {
-      const conversation = await Conversation.findOne({ _id: conversationId, userId, deletedAt: null });
-      if (!conversation) {
-        return sendError(res, "Conversation not found or access denied.", 404, "NOT_FOUND");
-      }
+    const conversation = await Conversation.findOne({
+      _id: conversationId,
+      userId,
+      deletedAt: null,
+    });
+    if (!conversation) {
+      return sendError(res, "Conversation not found or access denied.", 404, "NOT_FOUND");
     }
 
+    const filter = { conversationId, userId };
     const [messages, total] = await Promise.all([
-      Message.find({ conversationId })
-        .sort({ createdAt: 1 })
-        .skip(skip)
-        .limit(limit),
-      Message.countDocuments({ conversationId }),
+      Message.find(filter).sort({ createdAt: 1 }).skip(skip).limit(limit),
+      Message.countDocuments(filter),
     ]);
 
     return sendPaginated(res, messages, total, page, limit);

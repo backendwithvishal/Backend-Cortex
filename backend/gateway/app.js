@@ -64,7 +64,7 @@ app.use((req, res) => {
 });
 
 // Error handler
-app.use((err, req, res, next) => {
+app.use((err, req, res, _next) => {
   res.status(err.status || 500).json({
     success: false,
     error: { code: "INTERNAL_SERVER_ERROR", message: err.message },

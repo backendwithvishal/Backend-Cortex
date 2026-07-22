@@ -25,7 +25,9 @@ class RabbitMQManager {
 
     while (attempts < maxAttempts) {
       try {
-        console.log(`[RabbitMQ] Connecting to ${RABBITMQ_URL} (Attempt ${attempts + 1}/${maxAttempts})...`);
+        console.log(
+          `[RabbitMQ] Connecting to ${RABBITMQ_URL} (Attempt ${attempts + 1}/${maxAttempts})...`
+        );
         this.connection = await amqp.connect(RABBITMQ_URL);
         this.channel = await this.connection.createChannel();
         this.isConnected = true;
@@ -44,7 +46,7 @@ class RabbitMQManager {
 
         // Initialize exchanges, queues, and bindings
         await this.initializeBroker();
-        
+
         // Re-register any listeners
         await this.reRegisterListeners();
         return;
@@ -73,7 +75,10 @@ class RabbitMQManager {
   async handleDisconnect() {
     this.isConnected = false;
     console.log("[RabbitMQ] Disconnected. Reconnecting in 5 seconds...");
-    setTimeout(() => this.connect().catch((err) => console.error("[RabbitMQ] Reconnect fail:", err.message)), 5000);
+    setTimeout(
+      () => this.connect().catch((err) => console.error("[RabbitMQ] Reconnect fail:", err.message)),
+      5000
+    );
   }
 
   async publish(routingKey, message) {
@@ -121,12 +126,14 @@ class RabbitMQManager {
           await onMessage(content, msg);
           this.channel.ack(msg);
         } catch (error) {
-          console.error(`[RabbitMQ] Error processing message on queue '${queueName}': ${error.message}`);
-          
+          console.error(
+            `[RabbitMQ] Error processing message on queue '${queueName}': ${error.message}`
+          );
+
           // Retry / DLQ strategy:
           const headers = msg.properties.headers || {};
           const deathCount = (headers["x-death"] && headers["x-death"][0]?.count) || 0;
-          
+
           if (deathCount < 3) {
             console.log(`[RabbitMQ] Rejecting message with requeue (Retries: ${deathCount}/3)`);
             this.channel.nack(msg, false, false); // Send to DLX / DLQ

@@ -11,7 +11,6 @@ import { deductCredits } from "../utils/deductCredits.js";
 export const imageAgent = async (state) => {
   try {
     await checkAgentLimit(state.userId, "image");
-    await deductCredits(state.userId, "image");
 
     const llm = getModel("image");
 
@@ -46,6 +45,8 @@ ${state.prompt}`);
 
     await storage.saveFile(imageBuffer, fileName, "image/png");
     const downloadUrl = await storage.getDownloadUrl(fileName);
+
+    await deductCredits(state.userId, "image");
 
     return {
       ...state,

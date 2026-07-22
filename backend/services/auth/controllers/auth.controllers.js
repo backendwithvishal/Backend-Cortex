@@ -4,6 +4,7 @@ import User from "../models/user.model.js";
 import redis from "../../../shared/redis/redis.js";
 import { app as firebaseApp } from "../config/firebase.js";
 import { sendSuccess, sendError } from "../../../shared/response/response.js";
+import { CREDIT_COSTS } from "../../../shared/config/creditCosts.js";
 
 const SESSION_TTL_SECONDS = 60 * 60 * 24 * 7; // 7 days
 
@@ -64,12 +65,7 @@ export const login = async (req, res) => {
     const sessionId = crypto.randomUUID();
 
     // Store reverse lookup: userId → sessionId (allows session invalidation on plan change)
-    await redis.set(
-      `user-session:${user._id}`,
-      sessionId,
-      "EX",
-      SESSION_TTL_SECONDS
-    );
+    await redis.set(`user-session:${user._id}`, sessionId, "EX", SESSION_TTL_SECONDS);
 
     // Store session data: sessionId → user payload
     await redis.set(
@@ -180,11 +176,7 @@ export const updateProfile = async (req, res) => {
     if (name) updates.name = name.trim();
     if (avatar !== undefined) updates.avatar = avatar.trim();
 
-    const user = await User.findByIdAndUpdate(
-      userId,
-      updates,
-      { new: true, runValidators: true }
-    );
+    const user = await User.findByIdAndUpdate(userId, updates, { new: true, runValidators: true });
 
     if (!user) {
       return sendError(res, "User not found.", 404, "USER_NOT_FOUND");
@@ -212,7 +204,7 @@ export const processPlanUpdate = async (userId, plan, credits) => {
     userId,
     {
       $set: { plan, planExpiresAt },
-      $inc: { credits: credits, totalCredits: credits }
+      $inc: { credits: credits, totalCredits: credits },
     },
     { new: true, runValidators: true }
   );
@@ -235,7 +227,12 @@ export const updatePlan = async (req, res) => {
     await processPlanUpdate(userId, plan, credits);
     return sendSuccess(res, null, "Plan updated successfully.");
   } catch (error) {
-    return sendError(res, error.message, error.status || 500, error.code || "INTERNAL_SERVER_ERROR");
+    return sendError(
+      res,
+      error.message,
+      error.status || 500,
+      error.code || "INTERNAL_SERVER_ERROR"
+    );
   }
 };
 
@@ -247,15 +244,6 @@ export const deductCredits = async (req, res) => {
     if (!userId || !agent) {
       return sendError(res, "userId and agent are required.", 400, "MISSING_FIELDS");
     }
-
-    const CREDIT_COSTS = {
-      chat: 1,
-      search: 5,
-      coding: 10,
-      pdf: 10,
-      ppt: 10,
-      image: 10,
-    };
 
     const requiredCredits = CREDIT_COSTS[agent] ?? 1;
 

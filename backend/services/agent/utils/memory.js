@@ -2,7 +2,7 @@ import redis from "../../../shared/redis/redis.js";
 import { getConversationHistory } from "./getConv.js";
 
 const MEMORY_TTL_SECONDS = 86400; // 24 hours
-const MAX_MEMORY_MESSAGES = 20;   // rolling window
+const MAX_MEMORY_MESSAGES = 20; // rolling window
 
 /**
  * Retrieves conversation history from Redis cache.

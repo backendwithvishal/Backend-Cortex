@@ -34,8 +34,8 @@ export const sendError = (res, message, statusCode = 500, code = "INTERNAL_SERVE
  * Creates a standardized global error-handling Express middleware.
  * @param {string} serviceName - Name of the microservice (for logging).
  */
-export const globalErrorHandler = (serviceName) => {
-  return (err, req, res, next) => {
+export const globalErrorHandler = (serviceName = "service") => {
+  return (err, req, res, _next) => {
     const reqId = req.id || "n/a";
     console.error(`[${serviceName}] [Error] [Req: ${reqId}] ${err.message}`, err.stack);
 

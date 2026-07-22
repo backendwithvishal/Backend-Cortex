@@ -1,6 +1,15 @@
 import { getModel } from "../utils/model.js";
 
-const VALID_AGENTS = new Set(["chat", "search", "coding", "pdf", "ppt", "image", "vision", "pdf_rag"]);
+const VALID_AGENTS = new Set([
+  "chat",
+  "search",
+  "coding",
+  "pdf",
+  "ppt",
+  "image",
+  "vision",
+  "pdf_rag",
+]);
 
 /**
  * Router node: determines which agent to dispatch to.

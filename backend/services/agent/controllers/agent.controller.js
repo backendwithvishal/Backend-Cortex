@@ -2,15 +2,16 @@ import { graph } from "../graph/supervisor.graph.js";
 import { addMessage } from "../utils/memory.js";
 import { storage } from "../utils/storage.js";
 import { sendError } from "../../../shared/response/response.js";
+import { validateFileMagicBytes } from "../config/multer.js";
 import axios from "axios";
 import path from "path";
 
 const CONTENT_TYPE_MAP = {
-  ".pdf":  "application/pdf",
-  ".png":  "image/png",
-  ".jpg":  "image/jpeg",
+  ".pdf": "application/pdf",
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
   ".jpeg": "image/jpeg",
-  ".gif":  "image/gif",
+  ".gif": "image/gif",
   ".webp": "image/webp",
   ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
 };
@@ -24,8 +25,17 @@ export const chat = async (req, res, next) => {
     const { prompt, conversationId, agent } = req.body;
     const userId = req.headers["x-user-id"];
 
+    if (req.file) {
+      await validateFileMagicBytes(req.file.path);
+    }
+
     if (!prompt || !conversationId || !agent) {
-      return sendError(res, "prompt, conversationId, and agent are required.", 400, "MISSING_FIELDS");
+      return sendError(
+        res,
+        "prompt, conversationId, and agent are required.",
+        400,
+        "MISSING_FIELDS"
+      );
     }
 
     if (!userId) {
@@ -118,8 +128,17 @@ export const streamChat = async (req, res, next) => {
     const { prompt, conversationId, agent } = req.body;
     const userId = req.headers["x-user-id"];
 
+    if (req.file) {
+      await validateFileMagicBytes(req.file.path);
+    }
+
     if (!prompt || !conversationId || !agent) {
-      return sendError(res, "prompt, conversationId, and agent are required.", 400, "MISSING_FIELDS");
+      return sendError(
+        res,
+        "prompt, conversationId, and agent are required.",
+        400,
+        "MISSING_FIELDS"
+      );
     }
 
     if (!userId) {

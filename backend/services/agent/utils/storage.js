@@ -10,7 +10,7 @@ const ALLOWED_MIME_TYPES = [
   "image/gif",
   "image/webp",
   "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-  "application/vnd.ms-powerpoint"
+  "application/vnd.ms-powerpoint",
 ];
 
 const MAX_FILE_SIZE = 20 * 1024 * 1024; // 20 MB
@@ -31,7 +31,7 @@ class LocalStorageProvider {
   getSafePath(filename) {
     const safeName = path.basename(filename);
     const resolvedPath = path.resolve(this.storageDir, safeName);
-    
+
     if (!resolvedPath.startsWith(this.storageDir)) {
       throw new Error("Access denied: Path traversal detected.");
     }
@@ -67,14 +67,14 @@ class LocalStorageProvider {
   async getDownloadUrl(filename) {
     // Return url pointing to secure backend gateway endpoint
     const backendUrl = (process.env.BACKEND_URL || "http://localhost:5000").replace(/\/$/, "");
-    return `${backendUrl}/api/agent/files/${filename}`;
+    return `${backendUrl}/api/v1/agent/files/${filename}`;
   }
 }
 
 class StorageService {
   constructor() {
     const providerType = process.env.STORAGE_PROVIDER || "local";
-    
+
     if (providerType === "local") {
       const storagePath = process.env.STORAGE_PATH || "./storage/uploads";
       this.provider = new LocalStorageProvider(storagePath);

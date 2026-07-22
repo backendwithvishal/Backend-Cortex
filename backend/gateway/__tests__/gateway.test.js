@@ -28,9 +28,7 @@ describe("Gateway — Authentication Guard", () => {
   });
 
   it("GET /api/v1/me with session cookie passes auth guard", async () => {
-    const res = await request(app)
-      .get("/api/v1/me")
-      .set("Cookie", "session=fake-session-id");
+    const res = await request(app).get("/api/v1/me").set("Cookie", "session=fake-session-id");
     // Without real Redis, this reaches the stub handler (200)
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);

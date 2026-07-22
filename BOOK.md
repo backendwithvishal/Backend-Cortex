@@ -263,7 +263,7 @@ CREATE INDEX idx_payments_user ON payments(user_id);
 | Structured logs (Morgan + prefix tags) | ✅ |
 | `nodemon` for dev, `node` for production | ✅ |
 | Prometheus metrics (`/metrics`) | ✅ Complete |
-| OpenTelemetry tracing / correlation headers | ✅ Complete |
+| OpenTelemetry tracing / correlation headers | ⏳ Partial |
 | CI/CD pipeline (GitHub Actions) | ✅ Complete |
 
 ---
@@ -293,7 +293,7 @@ CREATE INDEX idx_payments_user ON payments(user_id);
 |---|---|---|
 | RabbitMQ event queue for async billing payments | High | ✅ Complete |
 | Modular file storage (local / S3 adapter) | High | ✅ Complete |
-| SSE streaming for agent responses (`/api/v1/agent/stream`) | Medium | ✅ Complete |
+| SSE streaming for agent responses (`/api/v1/agent/stream`) | Medium | ⏳ Partial |
 | Refresh token session rotation & logout invalidation | Medium | ✅ Complete |
 
 ---

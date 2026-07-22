@@ -5,14 +5,14 @@ export const protectInternal = (req, res, next) => {
   if (!expectedKey) {
     return res.status(500).json({
       success: false,
-      message: "Internal API key is not configured on the server."
+      message: "Internal API key is not configured on the server.",
     });
   }
 
   if (internalKey !== expectedKey) {
     return res.status(403).json({
       success: false,
-      message: "Forbidden: Invalid internal API key."
+      message: "Forbidden: Invalid internal API key.",
     });
   }
 

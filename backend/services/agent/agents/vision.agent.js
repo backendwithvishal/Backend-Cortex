@@ -10,7 +10,6 @@ import { deductCredits } from "../utils/deductCredits.js";
 export const visionAgent = async (state) => {
   try {
     await checkAgentLimit(state.userId, "image");
-    await deductCredits(state.userId, "image");
 
     const llm = getModel("vision");
     const imageBuffer = await fs.readFile(state.file.path);
@@ -46,6 +45,8 @@ Rules:
     ];
 
     const response = await llm.invoke(messages);
+    await deductCredits(state.userId, "image");
+
     return {
       ...state,
       response: response.content,

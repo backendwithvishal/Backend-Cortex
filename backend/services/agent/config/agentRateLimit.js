@@ -2,12 +2,13 @@ import redis from "../../../shared/redis/redis.js";
 
 /** Per-agent request limits per user per minute */
 const LIMITS = {
-  chat:   20,
-  coding:  5,
-  pdf:     5,
-  ppt:     5,
-  image:   3,
-  search:  5,
+  chat: 20,
+  coding: 5,
+  pdf: 5,
+  pdf_rag: 5,
+  ppt: 5,
+  image: 3,
+  search: 5,
 };
 
 const WINDOW_SECONDS = 60;

@@ -31,7 +31,7 @@ describe("protectInternal middleware", () => {
     expect(res.json).toHaveBeenCalledWith(
       expect.objectContaining({
         success: false,
-        message: expect.stringContaining("Internal API key is not configured")
+        message: expect.stringContaining("Internal API key is not configured"),
       })
     );
     expect(next).not.toHaveBeenCalled();
@@ -49,7 +49,7 @@ describe("protectInternal middleware", () => {
     expect(res.json).toHaveBeenCalledWith(
       expect.objectContaining({
         success: false,
-        message: expect.stringContaining("Forbidden")
+        message: expect.stringContaining("Forbidden"),
       })
     );
     expect(next).not.toHaveBeenCalled();

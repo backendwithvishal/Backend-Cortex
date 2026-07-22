@@ -32,8 +32,8 @@ const SERVICE = "gateway";
 const logger = getLogger(SERVICE);
 
 // Allowed origins setup
-const allowedOrigins = process.env.ALLOWED_ORIGINS 
-  ? process.env.ALLOWED_ORIGINS.split(",") 
+const allowedOrigins = process.env.ALLOWED_ORIGINS
+  ? process.env.ALLOWED_ORIGINS.split(",")
   : ["http://localhost:5173"];
 
 // Initialize Socket.IO
@@ -52,7 +52,7 @@ app.use((req, res, next) => {
       method: req.method,
       url: req.originalUrl,
       status: res.statusCode,
-      durationMs: duration
+      durationMs: duration,
     });
   });
   next();
@@ -64,17 +64,19 @@ app.use(compression());
 app.use(cookieParser());
 
 // Dynamic CORS Configuration
-app.use(cors({
-  origin: (origin, callback) => {
-    if (!origin) return callback(null, true);
-    if (allowedOrigins.indexOf(origin) !== -1 || allowedOrigins.includes("*")) {
-      return callback(null, true);
-    } else {
-      return callback(new Error("Not allowed by CORS"));
-    }
-  },
-  credentials: true
-}));
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      if (!origin) return callback(null, true);
+      if (allowedOrigins.indexOf(origin) !== -1 || allowedOrigins.includes("*")) {
+        return callback(null, true);
+      } else {
+        return callback(new Error("Not allowed by CORS"));
+      }
+    },
+    credentials: true,
+  })
+);
 
 app.use(express.json());
 
@@ -82,43 +84,41 @@ app.use(express.json());
 app.use("/uploads", express.static("uploads"));
 
 // Fail-fast environment check
-if (!process.env.INTERNAL_API_KEY && process.env.NODE_ENV === "production") {
+if (!process.env.INTERNAL_API_KEY) {
   logger.error("FATAL: INTERNAL_API_KEY environment variable is not configured.");
-  process.exit(1);
+  throw new Error("INTERNAL_API_KEY environment variable is not configured.");
 }
 
 // CSRF Protection Middleware
 const csrfProtection = (req, res, next) => {
   const sessionCookie = req.cookies?.session;
-  
+
   if (sessionCookie && ["POST", "PUT", "DELETE", "PATCH"].includes(req.method)) {
     const csrfToken = req.headers["x-csrf-token"] || req.query._csrf;
-    const internalKey = process.env.INTERNAL_API_KEY || "csrf-fallback-secret";
+    const internalKey = process.env.INTERNAL_API_KEY;
     const expectedToken = crypto
       .createHmac("sha256", internalKey)
       .update(sessionCookie)
       .digest("hex");
 
-    const tokenValid = csrfToken && 
-      csrfToken.length === expectedToken.length && 
+    const tokenValid =
+      csrfToken &&
+      csrfToken.length === expectedToken.length &&
       crypto.timingSafeEqual(Buffer.from(csrfToken), Buffer.from(expectedToken));
 
     if (!tokenValid) {
       logger.warn(`CSRF validation failed for session ${sessionCookie.slice(0, 8)}...`);
       return res.status(403).json({
         success: false,
-        error: { code: "CSRF_ERROR", message: "Invalid or missing CSRF token." }
+        error: { code: "CSRF_ERROR", message: "Invalid or missing CSRF token." },
       });
     }
   }
 
   // Generate and set token for client
   if (sessionCookie) {
-    const internalKey = process.env.INTERNAL_API_KEY || "csrf-fallback-secret";
-    const nextToken = crypto
-      .createHmac("sha256", internalKey)
-      .update(sessionCookie)
-      .digest("hex");
+    const internalKey = process.env.INTERNAL_API_KEY;
+    const nextToken = crypto.createHmac("sha256", internalKey).update(sessionCookie).digest("hex");
     res.setHeader("x-csrf-token", nextToken);
   }
   next();
@@ -134,12 +134,12 @@ const globalLimiter = rateLimit({
   legacyHeaders: false,
   store: new RedisStore({
     sendCommand: (...args) => redis.call(...args),
-    prefix: "rl:global:"
+    prefix: "rl:global:",
   }),
   message: {
     success: false,
-    message: "Too many requests, please try again later."
-  }
+    message: "Too many requests, please try again later.",
+  },
 });
 app.use(globalLimiter);
 
@@ -151,12 +151,12 @@ const loginLimiter = rateLimit({
   legacyHeaders: false,
   store: new RedisStore({
     sendCommand: (...args) => redis.call(...args),
-    prefix: "rl:login:"
+    prefix: "rl:login:",
   }),
   message: {
     success: false,
-    message: "Too many login attempts. Please try again after 15 minutes."
-  }
+    message: "Too many login attempts. Please try again after 15 minutes.",
+  },
 });
 
 // Swagger Documentation Setup
@@ -171,18 +171,18 @@ const swaggerOptions = {
     servers: [
       {
         url: "http://localhost:5000/api/v1",
-        description: "API Gateway"
-      }
+        description: "API Gateway",
+      },
     ],
     components: {
       securitySchemes: {
         SessionCookie: {
           type: "apiKey",
           in: "cookie",
-          name: "session"
-        }
-      }
-    }
+          name: "session",
+        },
+      },
+    },
   },
   apis: [
     "./gateway/index.js",
@@ -190,8 +190,8 @@ const swaggerOptions = {
     "./services/auth/routes/*.routes.js",
     "./services/chat/routes/*.routes.js",
     "./services/agent/routes/*.route.js",
-    "./services/billing/routes/*.routes.js"
-  ]
+    "./services/billing/routes/*.routes.js",
+  ],
 };
 
 const swaggerSpec = swaggerJsdoc(swaggerOptions);
@@ -213,7 +213,7 @@ app.get("/health", async (req, res) => {
       redis: redisStatus,
       rabbitmq: rabbitMQStatus,
     },
-    timestamp: new Date().toISOString()
+    timestamp: new Date().toISOString(),
   });
 });
 
@@ -222,18 +222,25 @@ app.get("/", (req, res) => {
 });
 
 // Proxy routes under version /api/v1/
-app.use("/api/v1/auth/login", loginLimiter, proxy(process.env.AUTH_SERVICE, {
-  proxyReqPathResolver: () => "/api/v1/auth/login",
-  proxyErrorHandler: (err, res, next) => next(err)
-}));
+app.use(
+  "/api/v1/auth/login",
+  loginLimiter,
+  proxy(process.env.AUTH_SERVICE, {
+    proxyReqPathResolver: () => "/api/v1/auth/login",
+    proxyErrorHandler: (err, res, next) => next(err),
+  })
+);
 
 // Auth profile routes require session protection to populate verified x-user-id
 app.use("/api/v1/auth/profile", protect, proxyWithUser(process.env.AUTH_SERVICE));
 
-app.use("/api/v1/auth", proxy(process.env.AUTH_SERVICE, {
-  proxyReqPathResolver: (req) => `/api/v1/auth${req.url}`,
-  proxyErrorHandler: (err, res, next) => next(err)
-}));
+app.use(
+  "/api/v1/auth",
+  proxy(process.env.AUTH_SERVICE, {
+    proxyReqPathResolver: (req) => `/api/v1/auth${req.url}`,
+    proxyErrorHandler: (err, res, next) => next(err),
+  })
+);
 
 app.use("/api/v1/me", protect, getCurrentUser);
 app.use("/api/v1/chat", protect, proxyWithUser(process.env.CHAT_SERVICE));
@@ -246,13 +253,13 @@ app.use((req, res) => {
     success: false,
     error: {
       code: "NOT_FOUND",
-      message: `Route ${req.method} ${req.path} not found.`
-    }
+      message: `Route ${req.method} ${req.path} not found.`,
+    },
   });
 });
 
 // Centralized Error Handling Middleware
-app.use((err, req, res, next) => {
+app.use((err, req, res, _next) => {
   const reqId = req.id || "unknown";
   logger.error(`[Req ID: ${reqId}] ${err.message}`, err);
 
@@ -262,8 +269,8 @@ app.use((err, req, res, next) => {
     error: {
       code: err.code || "INTERNAL_SERVER_ERROR",
       message: err.message || "An unexpected error occurred",
-      ...(process.env.NODE_ENV !== "production" && { stack: err.stack })
-    }
+      ...(process.env.NODE_ENV !== "production" && { stack: err.stack }),
+    },
   });
 });
 
@@ -286,6 +293,6 @@ gracefulShutdown(server, SERVICE, [
   async () => {
     logger.info("Closing RabbitMQ connection...");
     await rabbitMQ.close();
-  }
+  },
 ]);
 export default app;

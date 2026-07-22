@@ -29,11 +29,16 @@ const openRouter = new ChatOpenRouter({
  */
 export const getModel = (agent) => {
   switch (agent) {
-    case "coding": return openRouter;
-    case "image":  return groq;
-    case "search": return groq;
-    case "vision": return gemini;
-    default:       return groq;
+    case "coding":
+      return openRouter;
+    case "image":
+      return groq;
+    case "search":
+      return groq;
+    case "vision":
+      return gemini;
+    default:
+      return groq;
   }
 };
 

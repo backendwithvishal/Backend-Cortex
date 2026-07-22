@@ -73,25 +73,29 @@ Return Markdown only. Do NOT generate project files.
 Maximum ~2000 output tokens. Generate only what is required.`;
 
 const FILE_EXTENSION_MAP = {
-  html:   "index.html",
-  css:    "style.css",
+  html: "index.html",
+  css: "style.css",
   python: "main.py",
-  java:   "Main.java",
-  "c++":  "main.cpp",
+  java: "Main.java",
+  "c++": "main.cpp",
 };
 
 /**
  * Strips markdown code fences from generated code content.
  */
 const cleanCode = (code = "") =>
-  code.replace(/```[\w-]*\n?/g, "").replace(/```/g, "").trim();
+  code
+    .replace(/```[\w-]*\n?/g, "")
+    .replace(/```/g, "")
+    .trim();
 
 export const codingAgent = async (state) => {
   await checkAgentLimit(state.userId, "coding");
-  await deductCredits(state.userId, "coding");
 
   const llm = getModel("coding");
   const response = await llm.invoke(`${CODING_SYSTEM_PROMPT}\n\nUser Request:\n\n${state.prompt}`);
+
+  await deductCredits(state.userId, "coding");
   const content = response.content?.trim();
 
   // No FILE: markers → plain text / review response
@@ -102,15 +106,16 @@ export const codingAgent = async (state) => {
   // Parse FILE: sections into structured artifacts
   const matches = [...content.matchAll(/FILE:\s*([^\n]+)\n([\s\S]*?)(?=\nFILE:\s*[^\n]+\n|$)/g)];
   const files = matches.map((match) => ({
-    name:    match[1].trim(),
+    name: match[1].trim(),
     content: cleanCode(match[2]),
   }));
 
   // Fallback: derive a sensible filename from the prompt if regex found nothing
   if (!files.length) {
     const promptLower = state.prompt.toLowerCase();
-    const fallbackName = Object.entries(FILE_EXTENSION_MAP)
-      .find(([keyword]) => promptLower.includes(keyword))?.[1] ?? "main.js";
+    const fallbackName =
+      Object.entries(FILE_EXTENSION_MAP).find(([keyword]) => promptLower.includes(keyword))?.[1] ??
+      "main.js";
 
     files.push({ name: fallbackName, content: cleanCode(content) });
   }
@@ -120,9 +125,9 @@ export const codingAgent = async (state) => {
     response: "Code generated successfully.",
     artifacts: [
       {
-        id:        Date.now(),
-        type:      "project",
-        title:     state.prompt,
+        id: Date.now(),
+        type: "project",
+        title: state.prompt,
         files,
         createdAt: new Date().toISOString(),
       },

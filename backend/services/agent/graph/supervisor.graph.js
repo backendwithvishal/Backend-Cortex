@@ -11,13 +11,13 @@ import { visionAgent } from "../agents/vision.agent.js";
 import { pdfRagAgent } from "../agents/pdfRag.agent.js";
 
 const AGENT_NODES = {
-  chat:    chatAgent,
-  coding:  codingAgent,
-  search:  searchAgent,
-  pdf:     pdfAgent,
-  ppt:     pptAgent,
-  image:   imageAgent,
-  vision:  visionAgent,
+  chat: chatAgent,
+  coding: codingAgent,
+  search: searchAgent,
+  pdf: pdfAgent,
+  ppt: pptAgent,
+  image: imageAgent,
+  vision: visionAgent,
   pdf_rag: pdfRagAgent,
 };
 
@@ -31,7 +31,7 @@ Object.entries(AGENT_NODES).forEach(([name, fn]) => workflow.addNode(name, fn));
 workflow.addEdge("__start__", "router");
 workflow.addConditionalEdges(
   "router",
-  (state) => AGENT_NODES[state.agent] ? state.agent : "chat",
+  (state) => (AGENT_NODES[state.agent] ? state.agent : "chat"),
   Object.fromEntries(Object.keys(AGENT_NODES).map((k) => [k, k]))
 );
 

@@ -1,17 +1,27 @@
 import fs from "fs";
+import crypto from "crypto";
 import { PDFParse } from "pdf-parse";
 import { RecursiveCharacterTextSplitter } from "@langchain/textsplitters";
 import { createVectorStore } from "../utils/vectorStore.js";
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import { getModel } from "../utils/model.js";
+import { checkAgentLimit } from "../config/agentRateLimit.js";
+import { deductCredits } from "../utils/deductCredits.js";
 
 /**
  * PDF RAG Agent: parses uploaded PDF, chunks text into vector store, performs similarity search, and answers questions.
  */
 export const pdfRagAgent = async (state) => {
   let collectionName = "";
+  let vectorStore = null;
 
   try {
+    await checkAgentLimit(state.userId, "pdf_rag");
+
+    if (!state.file?.path || !fs.existsSync(state.file.path)) {
+      throw new Error("PDF file is missing or unreadable.");
+    }
+
     const buffer = fs.readFileSync(state.file.path);
     const pdf = new PDFParse({ data: buffer });
     const result = await pdf.getText();
@@ -23,9 +33,9 @@ export const pdfRagAgent = async (state) => {
     });
 
     const docs = await splitter.createDocuments([text]);
-    collectionName = `pdf-${Date.now()}`;
+    collectionName = `pdf-rag-${crypto.randomUUID()}`;
 
-    const vectorStore = await createVectorStore(collectionName, docs);
+    vectorStore = await createVectorStore(collectionName, docs);
     const relevantDocs = await vectorStore.similaritySearch(state.prompt, 5);
     const context = relevantDocs.map((doc) => doc.pageContent).join("\n\n");
 
@@ -52,17 +62,30 @@ ${state.prompt}
 
     const response = await llm.invoke(messages);
 
+    // Deduct credits after successful response generation
+    await deductCredits(state.userId, "pdf_rag");
+
     return {
       ...state,
       docs,
       response: response.content,
     };
   } catch (error) {
+    console.error(`[pdfRagAgent] Error: ${error.message}`, error);
     return {
       ...state,
-      response: "❌ Failed to process PDF: " + error.message,
+      response: "Something went wrong processing your PDF, please try again.",
     };
   } finally {
+    // Delete temporary vector store collection
+    if (vectorStore?.client && collectionName) {
+      try {
+        await vectorStore.client.deleteCollection(collectionName);
+      } catch (err) {
+        console.error(`[pdfRagAgent] Collection cleanup failed: ${err.message}`);
+      }
+    }
+
     if (state.file?.path && fs.existsSync(state.file.path)) {
       try {
         fs.unlinkSync(state.file.path);

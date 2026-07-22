@@ -52,9 +52,28 @@ export const initSocket = (server, allowedOrigins) => {
     // Join private user room
     socket.join(`user:${userId}`);
 
-    socket.on("join-conversation", (conversationId) => {
-      socket.join(`conversation:${conversationId}`);
-      console.log(`[Socket.IO] Client ${socket.id} joined conversation:${conversationId}`);
+    socket.on("join-conversation", async (conversationId) => {
+      try {
+        if (!conversationId) return;
+        const chatServiceUrl = (process.env.CHAT_SERVICE || "http://localhost:5002").replace(
+          /\/$/,
+          ""
+        );
+        const res = await fetch(`${chatServiceUrl}/api/v1/chat/get-messages/${conversationId}`, {
+          headers: {
+            "x-internal-key": process.env.INTERNAL_API_KEY || "",
+            "x-user-id": String(socket.user.userId),
+          },
+        });
+        if (res.ok) {
+          socket.join(`conversation:${conversationId}`);
+          console.log(`[Socket.IO] Client ${socket.id} joined conversation:${conversationId}`);
+        } else {
+          socket.emit("error", { message: "Access denied to conversation." });
+        }
+      } catch (err) {
+        socket.emit("error", { message: "Access denied to conversation." });
+      }
     });
 
     socket.on("leave-conversation", (conversationId) => {
@@ -81,21 +100,6 @@ const startRabbitMQForwarders = async () => {
       console.log(`[Socket.IO Forwarder] Broadcasting payment.verified to user:${userId}`);
       io.to(`user:${userId}`).emit("payment.verified", { plan, credits });
     });
-
-    // 2. Listen for agent streaming/response events
-    await rabbitMQ.consume("gateway.agent.stream", "agent.stream.token", (data) => {
-      const { conversationId, chunk } = data;
-      console.log(`[Socket.IO Forwarder] Broadcasting agent token chunk to conversation:${conversationId}`);
-      io.to(`conversation:${conversationId}`).emit("agent.chunk", chunk);
-    });
-
-    // 3. Listen for general notifications
-    await rabbitMQ.consume("gateway.notification", "notification.created", (data) => {
-      const { userId, message, type } = data;
-      console.log(`[Socket.IO Forwarder] Broadcasting notification to user:${userId}`);
-      io.to(`user:${userId}`).emit("notification", { message, type });
-    });
-
   } catch (error) {
     console.error(`[Socket.IO Forwarder] Error starting RabbitMQ consumers: ${error.message}`);
   }
