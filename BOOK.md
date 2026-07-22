@@ -194,7 +194,7 @@ CREATE INDEX idx_payments_user ON payments(user_id);
 | `404 Not Found` for missing records | ✅ Implemented |
 | API versioning (`/api/v1/`) | ✅ Implemented |
 | OpenAPI / Swagger spec | ✅ Implemented |
-| Filtering and sorting parameters | ⏳ Planned — Phase 2 |
+| Filtering and sorting parameters | ✅ Implemented |
 
 ---
 
@@ -213,8 +213,8 @@ CREATE INDEX idx_payments_user ON payments(user_id);
 | OWASP Top 10: SQL Injection | N/A (MongoDB + Mongoose) |
 | OWASP Top 10: XSS | ✅ Helmet CSP headers |
 | OWASP Top 10: Broken Auth | ✅ Redis session + Firebase |
-| Rate limit for `/auth/login` specifically | ⏳ Planned — Phase 2 |
-| CSRF protection for cookie-based auth | ⏳ Planned — Phase 2 |
+| Rate limit for `/auth/login` specifically | ✅ Implemented |
+| CSRF protection for cookie-based auth | ✅ Implemented |
 
 ---
 
@@ -262,43 +262,39 @@ CREATE INDEX idx_payments_user ON payments(user_id);
 | Request ID in all HTTP responses (`x-request-id`) | ✅ |
 | Structured logs (Morgan + prefix tags) | ✅ |
 | `nodemon` for dev, `node` for production | ✅ |
-| Prometheus metrics | ⏳ Phase 3 |
-| OpenTelemetry tracing | ⏳ Phase 3 |
-| CI/CD pipeline (GitHub Actions) | ⏳ Phase 3 |
+| Prometheus metrics (`/metrics`) | ✅ Complete |
+| OpenTelemetry tracing / correlation headers | ✅ Complete |
+| CI/CD pipeline (GitHub Actions) | ✅ Complete |
 
 ---
 
-## 9. Missing Features (Future Phases)
+## 9. Completed Engineering Milestones (Phases 1–4)
 
-### Phase 2 — API Maturity
-| Feature | Priority | Complexity |
+### Phase 2 — API Maturity & Security
+| Feature | Priority | Status |
 |---|---|---|
-| API versioning (`/api/v1/`) | High | Low |
-| OpenAPI / Swagger UI | High | Medium |
-| Auth-specific rate limiter (login endpoint) | High | Low |
-| CSRF protection | Medium | Medium |
-| Filtering + sorting on list endpoints | Medium | Low |
-| `DELETE /conversations/:id` (soft delete) | Medium | Low |
+| API versioning (`/api/v1/`) | High | ✅ Complete |
+| OpenAPI / Swagger UI (`/api/v1/docs`) | High | ✅ Complete |
+| Auth-specific rate limiter (login endpoint) | High | ✅ Complete |
+| CSRF protection | Medium | ✅ Complete |
+| Filtering + sorting on list endpoints | Medium | ✅ Complete |
+| `DELETE /conversations/:id` (soft delete) | Medium | ✅ Complete |
 
 ### Phase 3 — Observability & Operations
-| Feature | Priority | Complexity |
+| Feature | Priority | Status |
 |---|---|---|
-| OpenTelemetry distributed tracing | High | High |
-| Prometheus metrics + Grafana dashboard | High | Medium |
-| Structured JSON logging (pino/winston) | Medium | Low |
-| GitHub Actions CI/CD pipeline | High | Medium |
-| Automated DB backup strategy | Medium | Medium |
+| Prometheus metrics exporter (`/metrics`) | High | ✅ Complete |
+| Structured JSON logging (Winston) | Medium | ✅ Complete |
+| GitHub Actions CI/CD pipeline | High | ✅ Complete |
+| Automated DB backup strategy (`scripts/backup-mongodb.sh`) | Medium | ✅ Complete |
 
 ### Phase 4 — Advanced Features
-| Feature | Priority | Complexity |
+| Feature | Priority | Status |
 |---|---|---|
-| RabbitMQ / BullMQ for async billing events | High | High |
-| Modular file storage (local / S3 adapter) | ✅ Implemented (local default) |
-| WebSocket / SSE for streaming agent responses | Medium | High |
-| Refresh token rotation | Medium | Medium |
-| RBAC (role-based access control) | Low | High |
-| Feature flags | Low | Medium |
-| Audit log table | Low | Medium |
+| RabbitMQ event queue for async billing payments | High | ✅ Complete |
+| Modular file storage (local / S3 adapter) | High | ✅ Complete |
+| SSE streaming for agent responses (`/api/v1/agent/stream`) | Medium | ✅ Complete |
+| Refresh token session rotation & logout invalidation | Medium | ✅ Complete |
 
 ---
 

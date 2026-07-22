@@ -128,6 +128,7 @@ Interactive OpenAPI / Swagger Documentation is available at:
 |--------|----------|------|------|-------------|
 | `POST` | `/api/v1/auth/login` | ❌ | `{ token }` | Login with Firebase ID token |
 | `GET`  | `/api/v1/auth/logout` | ❌ | — | Invalidate session |
+| `POST` | `/api/v1/auth/refresh` | ❌ | — | Refresh session & rotate token expiry |
 | `GET`  | `/api/v1/auth/profile` | ✅ | — | Get user profile details |
 | `PATCH`| `/api/v1/auth/profile` | ✅ | `{ name?, avatar? }` | Update user name/avatar |
 | `GET`  | `/api/v1/me` | ✅ | — | Get current session user payload |
@@ -137,8 +138,9 @@ Interactive OpenAPI / Swagger Documentation is available at:
 | Method | Endpoint | Auth | Body / Query | Description |
 |--------|----------|------|--------------|-------------|
 | `POST` | `/api/v1/chat/create-conversation` | ✅ | — | Create a new conversation |
-| `GET`  | `/api/v1/chat/get-conversations` | ✅ | — | List user conversations |
+| `GET`  | `/api/v1/chat/get-conversations` | ✅ | `?search=title&sort=desc&page=1&limit=30` | List user conversations with search & sorting |
 | `POST` | `/api/v1/chat/update-conversation` | ✅ | `{ conversationId, title }` | Rename conversation |
+| `DELETE`| `/api/v1/chat/conversations/:id` | ✅ | — | Soft-delete a conversation (`deletedAt`) |
 | `POST` | `/api/v1/chat/save-message` | ✅ | `{ conversationId, role, content, images?, artifacts? }` | Save a message |
 | `GET`  | `/api/v1/chat/get-messages/:id` | ✅ | `?page=1&limit=30` | Paginated message history |
 
@@ -146,7 +148,8 @@ Interactive OpenAPI / Swagger Documentation is available at:
 
 | Method | Endpoint | Auth | Body | Description |
 |--------|----------|------|------|-------------|
-| `POST` | `/api/v1/agent/chat` | ✅ | `{ prompt, conversationId, agent }` + optional `file` | Run an agent |
+| `POST` | `/api/v1/agent/chat` | ✅ | `{ prompt, conversationId, agent }` + optional `file` | Run an agent workflow |
+| `POST` | `/api/v1/agent/stream` | ✅ | `{ prompt, conversationId, agent }` | Real-time SSE streaming agent response |
 | `GET`  | `/api/v1/agent/files/:filename` | ✅ | — | Fetch/download locally stored files (`?download=true`) |
 
 **Agent types**: `chat`, `coding`, `search`, `pdf`, `ppt`, `image`, `vision`, `pdf_rag`
@@ -156,7 +159,7 @@ Interactive OpenAPI / Swagger Documentation is available at:
 | Method | Endpoint | Auth | Body | Description |
 |--------|----------|------|------|-------------|
 | `POST` | `/api/v1/billing/create-order` | ✅ | `{ plan }` | Create a Razorpay order |
-| `POST` | `/api/v1/billing/verify-payment` | ✅ | `{ razorpay_order_id, razorpay_payment_id, razorpay_signature }` | Verify payment & queue event |
+| `POST` | `/api/v1/billing/verify-payment` | ✅ | `{ razorpay_order_id, razorpay_payment_id, razorpay_signature }` | Verify payment & queue RabbitMQ event |
 
 ### Standard Response Format
 
@@ -198,16 +201,24 @@ Interactive OpenAPI / Swagger Documentation is available at:
 }
 ```
 
-### Health Checks
+### Health Checks & Observability Metrics
 
-Each service exposes `GET /health`:
+Each service exposes `GET /health` and Prometheus metrics at `GET /metrics`:
 
 ```bash
+# Health Checks
 curl http://localhost:5000/health   # gateway
 curl http://localhost:5001/health   # auth
 curl http://localhost:5002/health   # chat
 curl http://localhost:5003/health   # agent
 curl http://localhost:5004/health   # billing
+
+# Prometheus Metrics Exporters
+curl http://localhost:5000/metrics  # gateway Prometheus metrics
+curl http://localhost:5001/metrics  # auth Prometheus metrics
+curl http://localhost:5002/metrics  # chat Prometheus metrics
+curl http://localhost:5003/metrics  # agent Prometheus metrics
+curl http://localhost:5004/metrics  # billing Prometheus metrics
 ```
 
 ---
@@ -241,16 +252,26 @@ backend/
 │   ├── middlewares/
 │   └── utils/
 ├── services/
-│   ├── auth/                   # Firebase + session management
+│   ├── auth/                   # Firebase + session management + RabbitMQ listener
 │   ├── chat/                   # Conversation & message persistence
-│   ├── agent/                  # LangGraph agent orchestration
-│   └── billing/                # Razorpay payment processing
+│   ├── agent/                  # LangGraph agent orchestration & SSE streaming
+│   └── billing/                # Razorpay payment processing & RabbitMQ publisher
 └── shared/                     # Shared modules across services
     ├── db/connectDB.js          # MongoDB connection with pooling
     ├── redis/redis.js           # ioredis singleton with retry logic
+    ├── rabbitmq/rabbitmq.js     # RabbitMQ connection manager & DLQ setup
+    ├── metrics/metrics.js       # Shared Prometheus metrics exporter
+    ├── logging/logger.js        # Structured Winston JSON logger
     ├── response/response.js     # Standardized response helpers
     └── shutdown/gracefulShutdown.js  # SIGTERM/SIGINT handlers
 ```
+
+---
+
+## Operations & Scripts
+
+- **CI/CD Pipeline**: GitHub Actions workflow defined in [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
+- **MongoDB Automated Backup**: Bash script located at [`scripts/backup-mongodb.sh`](scripts/backup-mongodb.sh).
 
 ---
 
@@ -258,7 +279,8 @@ backend/
 
 - **Session cookies** are `httpOnly`, `secure` in production, `sameSite=strict` in production.
 - **Internal endpoints** (`/internal/*`) require `x-internal-key` header — never exposed through the gateway.
-- **Rate limiting** is Redis-backed: 300 req / 15 min per IP by default (configurable via `RATE_LIMIT_MAX`).
+- **Rate limiting** is Redis-backed: 300 req / 15 min per IP by default (configurable via `RATE_LIMIT_MAX`), with strict 10 req / 15 min limit on `/api/v1/auth/login`.
+- **CSRF Protection** enforced via session HMAC tokens on unsafe HTTP methods (`POST`, `PUT`, `DELETE`).
 - **Input validation** is applied in all controllers before DB operations.
 - **MongoDB indexes** are defined on all frequently queried fields.
 
