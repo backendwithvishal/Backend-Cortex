@@ -1,291 +1,155 @@
-# Cortex AI — Backend
+# Cortex AI — Modular AI Agent Platform Backend
 
-A production-grade, microservices-based backend for the Cortex AI platform. Built with Node.js, Express, MongoDB, Redis, LangGraph, and Razorpay.
+[![Node.js](https://img.shields.io/badge/Node.js-v20+-green.svg)](https://nodejs.org/)
+[![Express](https://img.shields.io/badge/Express-v5-blue.svg)](https://expressjs.com/)
+[![LangGraph](https://img.shields.io/badge/LangGraph-Agent_Orchestration-orange.svg)](https://js.langchain.com/docs/langgraph)
+[![MongoDB](https://img.shields.io/badge/MongoDB-Atlas/Local-brightgreen.svg)](https://www.mongodb.com/)
+[![Redis](https://img.shields.io/badge/Redis-Sessions_%26_Cache-red.svg)](https://redis.io/)
+[![License: ISC](https://img.shields.io/badge/License-ISC-yellow.svg)](LICENSE)
+
+A production-grade, modular backend platform built with Node.js, Express, LangGraph, and MongoDB. **Cortex AI** powers multi-agent AI workflows (Chat, Coding, Multimodal Vision, PDF RAG, Image Generation, Real-Time Web Search) with built-in user authentication (Firebase + Redis session control), credit-based rate metering, and Razorpay subscription billing.
 
 ---
 
-## Architecture
+## 🚀 Key Features & Highlights
+
+- **🤖 LangGraph Agent Supervisor Engine**: State-graph router dynamically routing prompts across specialized AI agents.
+- **⚡ Modular Monolith Architecture**: Clean domain module separation (`auth`, `chat`, `agent`, `billing`) in a unified high-performance process.
+- **🔑 Auth & Session Control**: Firebase ID Token verification paired with ultra-fast Redis sliding window session storage.
+- **📚 PDF RAG Search**: Vector similarity search over user uploaded PDFs using LangChain and Qdrant.
+- **💳 Razorpay Billing System**: End-to-end plan upgrades, webhook signature validation, and atomic credit allocation.
+- **📊 Observability & Security**: Request tracing with `AsyncLocalStorage`, Prometheus `/metrics` exporter, Winston structured logging, and Zod payload validation.
+
+---
+
+## 📐 System Architecture
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│                        Clients                          │
-└───────────────────────────┬─────────────────────────────┘
-                            │ HTTP
-                            ▼
-┌─────────────────────────────────────────────────────────┐
-│                   API Gateway :5000                     │
-│  • Helmet, CORS, Rate Limiting (Redis), Morgan logs     │
-│  • Session verification (Redis cookie store)            │
-│  • Reverse proxy to downstream services                 │
-└────┬──────────┬──────────┬───────────┬──────────────────┘
-     │          │          │           │
-     ▼          ▼          ▼           ▼
- Auth:5001  Chat:5002  Agent:5003  Billing:5004
-     │          │          │           │
-     └──────────┴──────────┴───────────┘
-                           │
-                   ┌───────┴────────┐
-                   │   MongoDB      │
-                   │   Redis        │
-                   └────────────────┘
+                               ┌───────────────────────────────────┐
+                               │       Client / Web / Mobile       │
+                               └─────────────────┬─────────────────┘
+                                                 │ HTTP / SSE
+                                                 ▼
+┌─────────────────────────────────────────────────────────────────────────────────────────┐
+│                              CORTEX UNIFIED BACKEND                                     │
+│                                                                                         │
+│  ┌────────────────────────┐    ┌──────────────────────┐    ┌─────────────────────────┐  │
+│  │   Request Tracker      │    │    Redis Limiter     │    │   AsyncLocalStorage     │  │
+│  │  & Security Middleware │    │  & Auth Guard        │    │   Tracing Context       │  │
+│  └───────────┬────────────┘    └───────────┬──────────┘    └────────────┬────────────┘  │
+│              │                             │                            │               │
+│              ├─────────────────────────────┴────────────────────────────┤               │
+│              ▼                                                          ▼               │
+│  ┌────────────────────────┐    ┌──────────────────────┐    ┌─────────────────────────┐  │
+│  │     Auth Module        │    │     Chat Module      │    │     Billing Module      │  │
+│  │ (Firebase/User Models) │    │(Conversations/Msgs)  │    │  (Razorpay Orders)      │  │
+│  └────────────────────────┘    └──────────────────────┘    └─────────────────────────┘  │
+│                                            │                                            │
+│                                            ▼                                            │
+│                                ┌──────────────────────┐                                 │
+│                                │     Agent Module     │                                 │
+│                                └───────────┬──────────┘                                 │
+│                                            │                                            │
+│                                            ▼                                            │
+│                                ┌──────────────────────┐                                 │
+│                                │ LangGraph Supervisor │                                 │
+│                                └───────────┬──────────┘                                 │
+│                                            │                                            │
+│            ┌──────────────┬────────────────┼────────────────┬──────────────┐            │
+│            ▼              ▼                ▼                ▼              ▼            │
+│       ┌─────────┐   ┌──────────┐    ┌─────────────┐   ┌───────────┐   ┌─────────┐       │
+│       │  Chat   │   │  Coding  │    │   Vision    │   │  PDF RAG  │   │ Search  │       │
+│       │ Agent   │   │  Agent   │    │   Agent     │   │  Agent    │   │ Agent   │       │
+│       └─────────┘   └──────────┘    └─────────────┘   └───────────┘   └─────────┘       │
+└────────────────────────────────────────────┬────────────────────────────────────────────┘
+                                             │
+                       ┌─────────────────────┼─────────────────────┐
+                       ▼                     ▼                     ▼
+               ┌───────────────┐     ┌───────────────┐     ┌───────────────┐
+               │    MongoDB     │     │     Redis     │     │ Qdrant Vector │
+               └───────────────┘     └───────────────┘     └───────────────┘
 ```
 
-### Services
+---
 
-| Service   | Port | Responsibility |
-|-----------|------|----------------|
-| `gateway` | 5000 | Auth, rate limiting, reverse proxy |
-| `auth`    | 5001 | Firebase token validation, session management, user CRUD |
-| `chat`    | 5002 | Conversation and message persistence |
-| `agent`   | 5003 | LangGraph agent orchestration (chat, coding, search, pdf, ppt, image) |
-| `billing` | 5004 | Razorpay order creation and payment verification |
+## 🛠️ Technology Stack
+
+- **Runtime**: Node.js v20+ (ES Modules)
+- **Framework**: Express v5
+- **AI Orchestration**: LangChain, LangGraph
+- **Database**: MongoDB (Mongoose v8)
+- **Caching & Sessions**: Redis (ioredis)
+- **Vector DB**: Qdrant
+- **Logging**: Winston + AsyncLocalStorage correlation tracing
+- **Validation**: Zod
+- **API Documentation**: Swagger / OpenAPI 3.0
 
 ---
 
-## Prerequisites
+## 🚦 API Endpoints Overview
 
-- Node.js >= 18
-- MongoDB (local Docker Compose or Atlas instance)
-- Redis 7+
-- Docker & Docker Compose (for containerized setup)
+### Auth Module (`/api/v1/auth`)
+- `POST /login` — Verify Firebase token & create Redis session.
+- `GET /logout` — Invalidate user session.
+- `POST /refresh` — Refresh active session TTL.
+- `GET /profile` — Fetch current user profile.
+- `PATCH /profile` — Update user name or avatar.
+
+### Chat Module (`/api/v1/chat`)
+- `POST /create-conversation` — Start a new chat thread.
+- `GET /get-conversations` — List paginated user conversations with text search.
+- `POST /update-conversation` — Rename conversation title.
+- `DELETE /conversations/:id` — Soft-delete conversation.
+- `GET /get-messages/:id` — Fetch message history for a thread.
+
+### Agent Module (`/api/v1/agent`)
+- `POST /chat` — Execute multi-agent graph workflow.
+- `POST /stream` — Stream agent responses via SSE (Server-Sent Events).
+- `GET /files/:filename` — Download generated agent files.
+
+### Billing Module (`/api/v1/billing`)
+- `POST /create-order` — Create Razorpay order for plan upgrade.
+- `POST /verify-payment` — Verify payment signature & credit allocation.
 
 ---
 
-## File Storage
+## ⚡ Quickstart Guide
 
-The project utilizes a cloud-independent, modular local storage adapter for saving generated and uploaded assets (PDFs, presentations, and images):
-- **Local Storage Path**: Configurable via `STORAGE_PATH` (defaults to `./storage/uploads`).
-- **Endpoint Protection**: Served via secure backend endpoint `/api/agent/files/:filename` proxied by the gateway (enforcing session cookie auth). Add `?download=true` query parameter to force download as an attachment.
-- **Validation**: Uploaded and generated files are checked for MIME type correctness and size limits (max 20MB).
-- **Path Traversal Protection**: Employs strict target directory verification to prevent path traversal vulnerability.
-- **Docker Persistence**: The `/storage/uploads` directory inside the agent container is bound to the `cortex-storage` Docker volume, ensuring files persist across container restarts.
-
----
-
-## Environment Setup
-
-Copy `.env.example` to `.env` and fill in your values:
-
+### 1. Environment Setup
+Copy the example configuration:
 ```bash
 cp .env.example .env
 ```
 
-All critical secrets are documented in [`.env.example`](.env.example).
+Fill in your provider keys in `.env` (`GOOGLE_API_KEY`, `GROQ_API_KEY`, `OPENROUTER_API_KEY`, `TAVILY_API_KEY`, `MONGODB_URL`, `REDIS_URL`).
 
-> **Important**: `INTERNAL_API_KEY` must be the same value across all services. It is used to authenticate service-to-service calls (e.g., billing → auth).
-
----
-
-## Running Locally (Development)
-
-Each service is independently runnable. From the service directory:
-
+### 2. Local Infrastructure (Docker Compose)
+Start MongoDB, Redis, and RabbitMQ:
 ```bash
-# Example: start the gateway
-cd backend/gateway
-npm install
-npm run dev
-
-# Start auth service
-cd backend/services/auth
-npm install
-npm run dev
+docker-compose up -d redis mongodb rabbitmq
 ```
 
-Start Redis locally:
-```bash
-docker run -d -p 6379:6379 redis:7-alpine
-```
-
----
-
-## Running with Docker Compose
-
+### 3. Install & Run Application
 ```bash
 cd backend
-docker compose up --build
-```
-
-All services start with health checks. The gateway waits for all downstream services to become healthy before accepting traffic.
-
-To stop:
-```bash
-docker compose down
-```
-
----
-
-## API Reference & Documentation
-
-All routes go through the API Gateway at `http://localhost:5000/api/v1`.
-
-Interactive OpenAPI / Swagger Documentation is available at:
-`http://localhost:5000/api/v1/docs`
-
-### Authentication
-
-| Method | Endpoint | Auth | Body | Description |
-|--------|----------|------|------|-------------|
-| `POST` | `/api/v1/auth/login` | ❌ | `{ token }` | Login with Firebase ID token |
-| `GET`  | `/api/v1/auth/logout` | ❌ | — | Invalidate session |
-| `POST` | `/api/v1/auth/refresh` | ❌ | — | Refresh session & rotate token expiry |
-| `GET`  | `/api/v1/auth/profile` | ✅ | — | Get user profile details |
-| `PATCH`| `/api/v1/auth/profile` | ✅ | `{ name?, avatar? }` | Update user name/avatar |
-| `GET`  | `/api/v1/me` | ✅ | — | Get current session user payload |
-
-### Chat
-
-| Method | Endpoint | Auth | Body / Query | Description |
-|--------|----------|------|--------------|-------------|
-| `POST` | `/api/v1/chat/create-conversation` | ✅ | — | Create a new conversation |
-| `GET`  | `/api/v1/chat/get-conversations` | ✅ | `?search=title&sort=desc&page=1&limit=30` | List user conversations with search & sorting |
-| `POST` | `/api/v1/chat/update-conversation` | ✅ | `{ conversationId, title }` | Rename conversation |
-| `DELETE`| `/api/v1/chat/conversations/:id` | ✅ | — | Soft-delete a conversation (`deletedAt`) |
-| `POST` | `/api/v1/chat/save-message` | ✅ | `{ conversationId, role, content, images?, artifacts? }` | Save a message |
-| `GET`  | `/api/v1/chat/get-messages/:id` | ✅ | `?page=1&limit=30` | Paginated message history |
-
-### Agent
-
-| Method | Endpoint | Auth | Body | Description |
-|--------|----------|------|------|-------------|
-| `POST` | `/api/v1/agent/chat` | ✅ | `{ prompt, conversationId, agent }` + optional `file` | Run an agent workflow |
-| `POST` | `/api/v1/agent/stream` | ✅ | `{ prompt, conversationId, agent }` | Real-time SSE streaming agent response |
-| `GET`  | `/api/v1/agent/files/:filename` | ✅ | — | Fetch/download locally stored files (`?download=true`) |
-
-**Agent types**: `chat`, `coding`, `search`, `pdf`, `ppt`, `image`, `vision`, `pdf_rag`
-
-### Billing
-
-| Method | Endpoint | Auth | Body | Description |
-|--------|----------|------|------|-------------|
-| `POST` | `/api/v1/billing/create-order` | ✅ | `{ plan }` | Create a Razorpay order |
-| `POST` | `/api/v1/billing/verify-payment` | ✅ | `{ razorpay_order_id, razorpay_payment_id, razorpay_signature }` | Verify payment & queue RabbitMQ event |
-
-### Standard Response Format
-
-**Success:**
-```json
-{
-  "success": true,
-  "message": "OK",
-  "data": { ... }
-}
-```
-
-**Paginated:**
-```json
-{
-  "success": true,
-  "data": {
-    "items": [ ... ],
-    "pagination": {
-      "total": 120,
-      "page": 1,
-      "limit": 30,
-      "totalPages": 4,
-      "hasNextPage": true,
-      "hasPrevPage": false
-    }
-  }
-}
-```
-
-**Error:**
-```json
-{
-  "success": false,
-  "error": {
-    "code": "UNAUTHORIZED",
-    "message": "Authentication required."
-  }
-}
-```
-
-### Health Checks & Observability Metrics
-
-Each service exposes `GET /health` and Prometheus metrics at `GET /metrics`:
-
-```bash
-# Health Checks
-curl http://localhost:5000/health   # gateway
-curl http://localhost:5001/health   # auth
-curl http://localhost:5002/health   # chat
-curl http://localhost:5003/health   # agent
-curl http://localhost:5004/health   # billing
-
-# Prometheus Metrics Exporters
-curl http://localhost:5000/metrics  # gateway Prometheus metrics
-curl http://localhost:5001/metrics  # auth Prometheus metrics
-curl http://localhost:5002/metrics  # chat Prometheus metrics
-curl http://localhost:5003/metrics  # agent Prometheus metrics
-curl http://localhost:5004/metrics  # billing Prometheus metrics
-```
-
----
-
-## Running Tests
-
-```bash
-cd backend/gateway
 npm install
+npm run dev
+```
+
+The application will start on **`http://localhost:5000`**.  
+Interactive Swagger API documentation is available at **`http://localhost:5000/api/v1/docs`**.
+
+---
+
+## 🧪 Testing
+
+Run the test suite using Jest:
+```bash
+cd backend
 npm test
 ```
 
-Tests cover:
-- Gateway health and root endpoints
-- Auth guard enforcement (401 without session)
-- 404 handling and error shape consistency
-- `sendSuccess`, `sendError`, `sendPaginated` response helpers
-
 ---
 
-## Folder Structure
-
-```
-backend/
-├── docker-compose.yml          # Unified service orchestration
-├── gateway/                    # API Gateway
-│   ├── app.js                  # Testable Express app (no server.listen)
-│   ├── index.js                # Entry point (binds to port)
-│   ├── __tests__/              # Jest test suites
-│   ├── controllers/
-│   ├── middlewares/
-│   └── utils/
-├── services/
-│   ├── auth/                   # Firebase + session management + RabbitMQ listener
-│   ├── chat/                   # Conversation & message persistence
-│   ├── agent/                  # LangGraph agent orchestration & SSE streaming
-│   └── billing/                # Razorpay payment processing & RabbitMQ publisher
-└── shared/                     # Shared modules across services
-    ├── db/connectDB.js          # MongoDB connection with pooling
-    ├── redis/redis.js           # ioredis singleton with retry logic
-    ├── rabbitmq/rabbitmq.js     # RabbitMQ connection manager & DLQ setup
-    ├── metrics/metrics.js       # Shared Prometheus metrics exporter
-    ├── logging/logger.js        # Structured Winston JSON logger
-    ├── response/response.js     # Standardized response helpers
-    └── shutdown/gracefulShutdown.js  # SIGTERM/SIGINT handlers
-```
-
----
-
-## Operations & Scripts
-
-- **CI/CD Pipeline**: GitHub Actions workflow defined in [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
-- **MongoDB Automated Backup**: Bash script located at [`scripts/backup-mongodb.sh`](scripts/backup-mongodb.sh).
-
----
-
-## Security
-
-- **Session cookies** are `httpOnly`, `secure` in production, `sameSite=strict` in production.
-- **Internal endpoints** (`/internal/*`) require `x-internal-key` header — never exposed through the gateway.
-- **Rate limiting** is Redis-backed: 300 req / 15 min per IP by default (configurable via `RATE_LIMIT_MAX`), with strict 10 req / 15 min limit on `/api/v1/auth/login`.
-- **CSRF Protection** enforced via session HMAC tokens on unsafe HTTP methods (`POST`, `PUT`, `DELETE`).
-- **Input validation** is applied in all controllers before DB operations.
-- **MongoDB indexes** are defined on all frequently queried fields.
-
----
-
-## Engineering Roadmap
-
-See [`BOOK.md`](./BOOK.md) for the full architecture audit, database schema designs, security analysis, and future enhancement roadmap.
+## 📄 License
+This project is licensed under the ISC License.
